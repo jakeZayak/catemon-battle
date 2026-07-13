@@ -6,12 +6,15 @@ import { useState, useRef, useEffect, useCallback } from "react";
 
 /* ---------- cat photos ---------- */
 
+// prefix with Vite's base URL so paths work at "/" in dev and "/catemon-battle/" on Pages
+const asset = (p) => import.meta.env.BASE_URL + p;
+
 const CAT_IMAGES = {
-  huh:    "/cat_imgs/huh-cat.gif",
-  maxwell: "/cat_imgs/maxwell-cat-spinning.gif",
-  oiia:   "/cat_imgs/oiia-cat.gif",
-  quaso:  "/cat_imgs/quaso_cat.webp",
-  banana: "/cat_imgs/banana-cat-cry.gif",
+  huh:    asset("cat_imgs/huh-cat.gif"),
+  maxwell: asset("cat_imgs/maxwell-cat-spinning.gif"),
+  oiia:   asset("cat_imgs/oiia-cat.gif"),
+  quaso:  asset("cat_imgs/quaso_cat.webp"),
+  banana: asset("cat_imgs/banana-cat-cry.gif"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -296,10 +299,10 @@ function buildRound(playerF, enemyF, playerMove, rng) {
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
 
 const CAT_SOUNDS = {
-  huh:    { src: "/sounds/huh-cat.mp3" },
-  maxwell: { src: "/sounds/maxwell.mp3", limit: 8 },
-  oiia:   { src: "/sounds/oiia-oiia-sound.mp3" },
-  banana: { src: "/sounds/banana-cat-crying.mp3" },
+  huh:    { src: asset("sounds/huh-cat.mp3") },
+  maxwell: { src: asset("sounds/maxwell.mp3"), limit: 8 },
+  oiia:   { src: asset("sounds/oiia-oiia-sound.mp3") },
+  banana: { src: asset("sounds/banana-cat-crying.mp3") },
 };
 
 function useSfx() {
