@@ -7,22 +7,26 @@ import { useState, useRef, useEffect, useCallback } from "react";
 /* ---------- cat photos ---------- */
 
 const CAT_IMAGES = {
-  huh:     "/cat_imgs/huh_cat.jpg",
-  maxwell: "/cat_imgs/maxwell_cat.jpg",
-  oiia:    "/cat_imgs/oiia-cat.gif",
-  quaso:   "/cat_imgs/quaso_cat.webp",
+  huh:    "/cat_imgs/huh-cat.gif",
+  maxwell: "/cat_imgs/maxwell-cat-spinning.gif",
+  oiia:   "/cat_imgs/oiia-cat.gif",
+  quaso:  "/cat_imgs/quaso_cat.webp",
+  banana: "/cat_imgs/banana-cat-cry.gif",
 };
 
 // objectPosition to crop each photo nicely in a square container
 const CAT_CROP = {
-  huh:     "center 0%",   // anchor top → clips the "HUH" text at the bottom
+  huh:    "center 0%",    // anchor top → clips the "HUH" text at the bottom
   maxwell: "60% center",  // shift right to center on the cat body
-  oiia:    "center center",
-  quaso:   "20% 30%",     // zoom into the face, crop out wall/floor background
+  oiia:   "center center",
+  quaso:  "20% 30%",      // zoom into the face, crop out wall/floor background
+  banana: "center center",
 };
 
+// oiia GIF has a solid black background — match the wrapper so it looks clean
+const CAT_WRAP_BG = { oiia: "#111" };
+
 function CatPhoto({ id, size = 96, flip = false, className = "", style = {} }) {
-  const isOiia = id === "oiia";
   return (
     <div
       className={`cat-photo-wrap ${className}`}
@@ -30,17 +34,14 @@ function CatPhoto({ id, size = 96, flip = false, className = "", style = {} }) {
         width: size,
         height: size,
         transform: flip ? "scaleX(-1)" : undefined,
+        background: CAT_WRAP_BG[id],
         ...style,
       }}
     >
       <img
         src={CAT_IMAGES[id]}
         alt={id}
-        style={{
-          objectPosition: CAT_CROP[id],
-          // oiia GIF has a black bg — screen blend makes black transparent
-          mixBlendMode: isOiia ? "screen" : undefined,
-        }}
+        style={{ objectPosition: CAT_CROP[id] }}
       />
     </div>
   );
@@ -101,9 +102,22 @@ const CATS = {
       { key: "pounce", name: "POUNCE",       power: 84, acc: 85,  desc: "High-damage leap attack.",      fx: {} },
     ],
   },
+  banana: {
+    id: "banana",
+    name: "BANANA CAT",
+    type: "TEARS",
+    tagline: "sobbing intensifies",
+    stats: { hp: 116, atk: 23, def: 22, spd: 12 },
+    moves: [
+      { key: "cry",    name: "BANANA SUIT",  power: 0,  acc: 90,  desc: "Overwhelming sadness confuses foe.",  fx: { confuse: 1.0 } },
+      { key: "stream", name: "TEAR STREAM",  power: 50, acc: 100, desc: "Damage + 15% recoil from sobbing.",   fx: { recoil: 0.15 } },
+      { key: "wail",   name: "FULL WAIL",    power: 90, acc: 72,  desc: "Maximum volume. Very risky aim.",     fx: {} },
+      { key: "split",  name: "BANANA SPLIT", power: 0,  acc: 100, desc: "Eats the banana. Restores 40% HP.",   fx: { heal: 0.4 } },
+    ],
+  },
 };
 
-const CAT_IDS = ["huh", "maxwell", "oiia", "quaso"];
+const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana"];
 
 /* ---------- battle math ---------- */
 
@@ -154,7 +168,7 @@ function useMove(state, userKey, foeKey, move, rng) {
     }
   }
 
-  events.push({ text: `${user().base.name} used ${move.name}!`, snapshot: snap(), sfx: "select" });
+  events.push({ text: `${user().base.name} used ${move.name}!`, snapshot: snap(), sfx: `cat:${user().base.id}` });
 
   if (rng() * 100 > move.acc) {
     events.push({ text: `But it missed!`, snapshot: snap() });
@@ -279,13 +293,39 @@ function buildRound(playerF, enemyF, playerMove, rng) {
   return { events, outcome };
 }
 
-/* ---------- tiny chiptune sfx ---------- */
+/* ---------- sfx (real audio + chiptune fallback) ---------- */
+
+const CAT_SOUNDS = {
+  huh:    { src: "/sounds/huh-cat.mp3" },
+  maxwell: { src: "/sounds/maxwell.mp3", limit: 8 },
+  oiia:   { src: "/sounds/oiia-oiia-sound.mp3" },
+  banana: { src: "/sounds/banana-cat-crying.mp3" },
+};
 
 function useSfx() {
   const ctxRef = useRef(null);
   const mutedRef = useRef(false);
+  const catAudioRef = useRef(null);
+
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
+
+    // Cat move sounds
+    if (kind.startsWith("cat:")) {
+      const catId = kind.slice(4);
+      const def = CAT_SOUNDS[catId];
+      if (def) {
+        if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
+        const audio = new Audio(def.src);
+        catAudioRef.current = audio;
+        audio.play().catch(() => {});
+        if (def.limit) setTimeout(() => { audio.pause(); }, def.limit * 1000);
+        return;
+      }
+      kind = "select"; // no audio file for this cat → chiptune
+    }
+
+    // Chiptune for hit / buff / status / heal / faint / start / select fallback
     try {
       if (!ctxRef.current) ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
       const ctx = ctxRef.current;
@@ -313,7 +353,8 @@ function useSfx() {
       /* audio unavailable */
     }
   }, []);
-  return { play, mutedRef };
+
+  return { play, mutedRef, catAudioRef };
 }
 
 /* ---------- UI components ---------- */
@@ -372,12 +413,16 @@ export default function CatemonBattle() {
   const [shake, setShake] = useState(null);
   const [fainting, setFainting] = useState(null);
   const [muted, setMuted] = useState(false);
-  const { play, mutedRef } = useSfx();
+  const { play, mutedRef, catAudioRef } = useSfx();
   const rng = Math.random;
 
   useEffect(() => {
     mutedRef.current = muted;
-  }, [muted, mutedRef]);
+    if (muted && catAudioRef.current) {
+      catAudioRef.current.pause();
+      catAudioRef.current.currentTime = 0;
+    }
+  }, [muted, mutedRef, catAudioRef]);
 
   const startBattle = (catId) => {
     const p = newFighter(catId);
@@ -508,9 +553,9 @@ export default function CatemonBattle() {
       .bigbtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b05a2a; }
       .select-screen { flex: 1; background: #eae6d2; padding: 12px; display: flex; flex-direction: column; }
       .select-title { font-size: 10px; color: #34362a; text-align: center; margin-bottom: 12px; }
-      .catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; }
-      .catcard { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 10px 6px;
-        display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+      .catgrid { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 8px; flex: 1; }
+      .catcard { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 8px 4px;
+        flex: 0 1 30%; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; }
       .catcard:active { background: #ece8d0; }
       .catcard .cname { font-size: 8px; color: #22241c; }
       .catcard .ctype { font-size: 6px; color: #8a5a2a; background: #f4e2c0; border: 1px solid #c89a5a;
@@ -533,7 +578,7 @@ export default function CatemonBattle() {
           <CatPhoto id="oiia" size={90} />
         </div>
         <div className="title-logo">CATÉMON</div>
-        <div className="title-sub">MEME CAT BATTLE<br />HUH · MAXWELL · OIIA · QUASO</div>
+        <div className="title-sub">MEME CAT BATTLE<br />HUH · MAXWELL · OIIA · QUASO · BANANA</div>
         <button className="bigbtn" onClick={() => { setScreen("select"); play("select"); }}>PRESS START</button>
       </div>
     );
@@ -546,7 +591,7 @@ export default function CatemonBattle() {
             const c = CATS[id];
             return (
               <button key={id} className="catcard" onClick={() => startBattle(id)}>
-                <CatPhoto id={id} size={64} />
+                <CatPhoto id={id} size={56} />
                 <span className="cname">{c.name}</span>
                 <span className="ctype">{c.type}</span>
                 <span className="ctag">{c.tagline}</span>
