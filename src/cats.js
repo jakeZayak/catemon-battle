@@ -13,6 +13,8 @@ export const CAT_IMAGES = {
   zoned:  asset("cat_imgs/zoned-out-cat.gif"),
   apple:  asset("cat_imgs/apple-cat.gif"),
   wert:   asset("cat_imgs/wert.png"),
+  pipe:   asset("cat_imgs/pipe.webp"),
+  stickbug: asset("cat_imgs/stick-bug.gif"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -26,6 +28,8 @@ export const CAT_CROP = {
   zoned:  "center 25%",   // favor the eyes
   apple:  "center center",
   wert:   "center 10%",   // tall portrait — frame the face and glasses
+  pipe:   "center center",
+  stickbug: "center 35%", // frame the bug on the ledge
 };
 
 // oiia GIF has a solid black background — match the wrapper so it looks clean
@@ -42,6 +46,8 @@ export const CAT_SOUNDS = {
   zoned:  ["sounds/zoned-out-cat-1.mp3", "sounds/zoning-out-cat.mp3"].map(asset),
   apple:  ["sounds/happy-cat-1.mp3", "sounds/happy-cat-2.mp3"].map(asset), // shares banana's clips
   wert:   ["sounds/wert.m4a"].map(asset),
+  pipe:   ["sounds/metal-pipe-clang.mp3"].map(asset),
+  stickbug: ["sounds/stickbug.mp3"].map(asset),
 };
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
@@ -162,6 +168,32 @@ export const CATS = {
       { key: "fury",   name: "FRUIT FURY",      power: 78, acc: 88,  desc: "Full fruit-powered slam.",           fx: {} },
     ],
   },
+  pipe: {
+    id: "pipe",
+    name: "METAL PIPE",
+    type: "CLANG",
+    tagline: "*deafening clang*",
+    stats: { hp: 110, atk: 27, def: 25, spd: 11 },
+    moves: [
+      { key: "conk",   name: "BRO GOT CONK'D",  power: 78, acc: 88,  desc: "The legendary falling pipe.",     fx: {} },
+      { key: "clang",  name: "CLANG",           power: 50, acc: 100, desc: "Loud damage. May confuse.",       fx: { confuse: 0.3 } },
+      { key: "lean",   name: "LEAN ON WALL",    power: 0,  acc: 100, desc: "Braces itself. Raises own DEF.",  fx: { defUp: 1.0 } },
+      { key: "drop",   name: "DROPPED!!",       power: 17, acc: 95,  desc: "Bounces 2-4 times.",              fx: { multi: true } },
+    ],
+  },
+  stickbug: {
+    id: "stickbug",
+    name: "STICK BUG",
+    type: "BAMBOO",
+    tagline: "he do be dancing tho",
+    stats: { hp: 106, atk: 22, def: 21, spd: 27 },
+    moves: [
+      { key: "stickbugd", name: "GET STICKBUG'D", power: 0,  acc: 90,  desc: "The ultimate bamboozle. Confuses foe.", fx: { confuse: 1.0 } },
+      { key: "sway",      name: "SWAY DANCE",     power: 0,  acc: 100, desc: "Hypnotic groove. Raises own SPD.",      fx: { spdUp: 1.0 } },
+      { key: "twig",      name: "TWIG SNAP",      power: 55, acc: 95,  desc: "Snappy, reliable damage.",              fx: {} },
+      { key: "bamboo",    name: "BAMBOO SLAM",    power: 78, acc: 88,  desc: "Full-branch body slam.",                fx: {} },
+    ],
+  },
   wert: {
     id: "wert",
     name: "WERT",
@@ -177,7 +209,7 @@ export const CATS = {
   },
 };
 
-export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "wert"];
+export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "wert"];
 
 /* wert is a player-only secret weapon — never spawns as an opponent */
 export const ENEMY_IDS = CAT_IDS.filter((id) => id !== "wert");

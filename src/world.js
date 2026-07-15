@@ -140,14 +140,14 @@ export const ITEMS = {
 
 export const ITEM_IDS = Object.keys(ITEMS);
 
-/* turn an item into a battle "move" the engine understands */
+/* turn an item into a battle "move" the engine understands; items always act first */
 export const itemToMove = (id) => ({
   item: true,
   key: `item-${id}`,
   name: ITEMS[id].name,
   power: 0,
   acc: 100,
-  fx: ITEMS[id].fx,
+  fx: { ...ITEMS[id].fx, priority: true },
 });
 
 /* ---------- equipment (passive stat boosts, collar + charm slots) ---------- */

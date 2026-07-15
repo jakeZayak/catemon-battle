@@ -94,8 +94,9 @@ function useMove(state, userKey, foeKey, move, rng) {
   }
 
   // If the defender has UNO REVERSE up, the move targets its own user
+  // (items are self-targeted and can't be bounced)
   let tgt = foeKey;
-  if (state[foeKey].reflect && userKey !== foeKey) {
+  if (state[foeKey].reflect && userKey !== foeKey && !move.item) {
     state[foeKey] = { ...state[foeKey], reflect: false };
     events.push({ text: `UNO REVERSE! The move bounces back!`, snapshot: snap(), sfx: "status", uno: foeKey });
     tgt = userKey;
@@ -216,11 +217,12 @@ export function buildRound(playerF, enemyF, playerMove, rng) {
   };
   const enemyMove = enemyPickMove(state.enemy, rng);
 
-  // priority moves (UNO REVERSE) jump the speed order
-  const pPrio = !!playerMove.fx.priority;
-  const ePrio = !!enemyMove.fx.priority;
+  // priority tiers: items (2) beat priority moves like UNO REVERSE (1) beat normal (0)
+  const prio = (m) => (m.item ? 2 : m.fx.priority ? 1 : 0);
+  const pPrio = prio(playerMove);
+  const ePrio = prio(enemyMove);
   let playerFirst;
-  if (pPrio !== ePrio) playerFirst = pPrio;
+  if (pPrio !== ePrio) playerFirst = pPrio > ePrio;
   else {
     const pSpd = state.player.stats.spd * stageMul(state.player.spdStage);
     const eSpd = state.enemy.stats.spd * stageMul(state.enemy.spdStage);
