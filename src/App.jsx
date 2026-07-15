@@ -14,7 +14,7 @@ const CAT_IMAGES = {
   maxwell: asset("cat_imgs/maxwell-cat-spinning.gif"),
   oiia:   asset("cat_imgs/oiia-cat.gif"),
   quaso:  asset("cat_imgs/quaso_cat.webp"),
-  banana: asset("cat_imgs/banana-cat-cry.gif"),
+  banana: asset("cat_imgs/banana-cat.gif"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -23,7 +23,7 @@ const CAT_CROP = {
   maxwell: "60% center",  // shift right to center on the cat body
   oiia:   "center center",
   quaso:  "20% 30%",      // zoom into the face, crop out wall/floor background
-  banana: "center center",
+  banana: "center 30%",   // tall portrait — favor the face
 };
 
 // oiia GIF has a solid black background — match the wrapper so it looks clean
@@ -298,11 +298,12 @@ function buildRound(playerF, enemyF, playerMove, rng) {
 
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
 
+// each cat has multiple clips — one is picked at random per move
 const CAT_SOUNDS = {
-  huh:    { src: asset("sounds/huh-cat.mp3") },
-  maxwell: { src: asset("sounds/maxwell.mp3"), limit: 8 },
-  oiia:   { src: asset("sounds/oiia-oiia-sound.mp3") },
-  banana: { src: asset("sounds/banana-cat-crying.mp3") },
+  huh:    ["sounds/huh-1.mp3", "sounds/huh-2.mp3", "sounds/huh-3-long.mp3"].map(asset),
+  maxwell: ["sounds/Maxwell-1.mp3", "sounds/Maxwell-2.mp3"].map(asset),
+  oiia:   ["sounds/oiia-oiia-1.mp3", "sounds/oiia-oiia-2.mp3"].map(asset),
+  banana: ["sounds/happy-cat-1.mp3", "sounds/happy-cat-2.mp3"].map(asset),
 };
 
 function useSfx() {
@@ -313,19 +314,18 @@ function useSfx() {
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
 
-    // Cat move sounds
+    // Cat move sounds — random clip from the cat's pool
     if (kind.startsWith("cat:")) {
       const catId = kind.slice(4);
-      const def = CAT_SOUNDS[catId];
-      if (def) {
+      const pool = CAT_SOUNDS[catId];
+      if (pool?.length) {
         if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
-        const audio = new Audio(def.src);
+        const audio = new Audio(pool[Math.floor(Math.random() * pool.length)]);
         catAudioRef.current = audio;
         audio.play().catch(() => {});
-        if (def.limit) setTimeout(() => { audio.pause(); }, def.limit * 1000);
         return;
       }
-      kind = "select"; // no audio file for this cat → chiptune
+      kind = "select"; // no audio files for this cat → chiptune
     }
 
     // Chiptune for hit / buff / status / heal / faint / start / select fallback
