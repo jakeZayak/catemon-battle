@@ -16,13 +16,14 @@ function calcDamage(attacker, defender, power, rng) {
   return { dmg: Math.max(1, Math.round(dmg)), crit };
 }
 
-/* opts: { level, bonuses: {hp,atk,def,spd}, hp, healsLeft, name, extraMoves } — all optional.
-   Quick Battle passes nothing and gets a plain level-1 fighter. */
+/* opts: { level, bonuses: {hp,atk,def,spd}, hp, healsLeft, name, extraMoves, statScale } — all
+   optional. Quick Battle passes nothing and gets a plain level-1 fighter.
+   statScale < 1 handicaps enemies so the player always has a slight edge. */
 export function newFighter(catId, opts = {}) {
   const base = CATS[catId];
   const level = opts.level ?? 1;
   const bonuses = opts.bonuses ?? {};
-  const mul = levelMul(level);
+  const mul = levelMul(level) * (opts.statScale ?? 1);
   const stats = {
     hp: Math.round(base.stats.hp * mul) + (bonuses.hp ?? 0),
     atk: Math.round(base.stats.atk * mul) + (bonuses.atk ?? 0),
@@ -63,7 +64,7 @@ function useMove(state, userKey, foeKey, move, rng) {
       if (rng() < 0.25) {
         const self = Math.max(1, Math.round(6 + rng() * 6));
         state[userKey] = { ...user(), hp: Math.max(0, user().hp - self) };
-        events.push({ text: `It hurt itself in confusion! (${self} dmg)`, snapshot: snap(), sfx: "hit" });
+        events.push({ text: `It hurt itself in confusion! (${self} dmg)`, snapshot: snap(), sfx: "hit", shake: userKey });
         return { events, fainted: state[userKey].hp <= 0 ? userKey : state[foeKey].hp <= 0 ? foeKey : null };
       }
     }
@@ -74,6 +75,7 @@ function useMove(state, userKey, foeKey, move, rng) {
     snapshot: snap(),
     sfx: move.sound ?? (move.item ? "select" : `cat:${user().base.id}`),
     spin: move.fx.heliSpin ? userKey : undefined,
+    lunge: move.power > 0 && !move.fx.heliSpin ? userKey : undefined,
   });
 
   if (rng() * 100 > move.acc) {
@@ -131,19 +133,19 @@ function useMove(state, userKey, foeKey, move, rng) {
       if (fx.confuse === 1.0) events.push({ text: `${foe().name} is already confused!`, snapshot: snap() });
     } else {
       state[tgt] = { ...foe(), confusedTurns: 1 + Math.floor(rng() * 2) };
-      events.push({ text: `${foe().name} became confused!`, snapshot: snap(), sfx: "status" });
+      events.push({ text: `${foe().name} became confused!`, snapshot: snap(), sfx: "status", wobble: tgt });
     }
   }
   if (fx.foeAtkDown && foe().hp > 0 && rng() < fx.foeAtkDown) {
     if (foe().atkStage > -2) {
       state[tgt] = { ...foe(), atkStage: foe().atkStage - 1 };
-      events.push({ text: `${foe().name}'s ATK fell!`, snapshot: snap(), sfx: "status" });
+      events.push({ text: `${foe().name}'s ATK fell!`, snapshot: snap(), sfx: "status", debuff: tgt });
     }
   }
   if (fx.atkUp) {
     if (user().atkStage < 2) {
       state[userKey] = { ...user(), atkStage: user().atkStage + 1 };
-      events.push({ text: `${user().name}'s ATK rose!`, snapshot: snap(), sfx: "buff" });
+      events.push({ text: `${user().name}'s ATK rose!`, snapshot: snap(), sfx: "buff", buffAnim: userKey });
     } else {
       events.push({ text: `${user().name}'s ATK can't go higher!`, snapshot: snap() });
     }
@@ -151,7 +153,7 @@ function useMove(state, userKey, foeKey, move, rng) {
   if (fx.defUp) {
     if (user().defStage < 2) {
       state[userKey] = { ...user(), defStage: user().defStage + 1 };
-      events.push({ text: `${user().name}'s DEF rose!`, snapshot: snap(), sfx: "buff" });
+      events.push({ text: `${user().name}'s DEF rose!`, snapshot: snap(), sfx: "buff", buffAnim: userKey });
     } else {
       events.push({ text: `${user().name}'s DEF can't go higher!`, snapshot: snap() });
     }
@@ -168,7 +170,7 @@ function useMove(state, userKey, foeKey, move, rng) {
           hp: user().hp + healed,
           healsLeft: move.item ? user().healsLeft : user().healsLeft - 1,
         };
-        events.push({ text: `${user().name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal" });
+        events.push({ text: `${user().name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal", healAnim: userKey });
       } else {
         events.push({ text: `But its HP is already full!`, snapshot: snap() });
       }

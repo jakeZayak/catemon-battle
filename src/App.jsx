@@ -244,8 +244,8 @@ export default function CatemonBattle() {
   const [current, setCurrent] = useState(null);
   const [phase, setPhase] = useState("intro");
   const [outcome, setOutcome] = useState(null);
-  const [shake, setShake] = useState(null);
-  const [spinning, setSpinning] = useState(null); // helicopter move
+  const [anim, setAnim] = useState({ player: null, enemy: null }); // sprite animation classes
+  const animTimers = useRef({ player: null, enemy: null });
   const [unoCard, setUnoCard] = useState(false);
   const [fainting, setFainting] = useState(null);
   const [showBag, setShowBag] = useState(false);
@@ -256,6 +256,7 @@ export default function CatemonBattle() {
   }));
   const battleIsBoss = useRef(false);
   const toastTimer = useRef(null);
+  const swipeStart = useRef(null);
   const { play, mutedRef, catAudioRef } = useSfx();
   const rng = Math.random;
 
@@ -301,7 +302,7 @@ export default function CatemonBattle() {
     battleIsBoss.current = false;
     const p = newFighter(catId);
     const others = CAT_IDS.filter((c) => c !== catId);
-    const e = newFighter(others[Math.floor(Math.random() * others.length)]);
+    const e = newFighter(others[Math.floor(Math.random() * others.length)], { statScale: 0.9 });
     beginBattle(p, e, `A wild ${e.name} appeared!`);
   };
 
@@ -310,6 +311,7 @@ export default function CatemonBattle() {
     setEnemyF(e);
     setOutcome(null);
     setFainting(null);
+    setAnim({ player: null, enemy: null });
     setShowBag(false);
     setQueue([]);
     setCurrent({ text: introText });
@@ -384,8 +386,8 @@ export default function CatemonBattle() {
     const wildId = randomFoeId(run.catId);
     const zone = ZONES[run.zone];
     const e = isBoss
-      ? newFighter(wildId, { level: rogueBossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE] })
-      : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor) });
+      ? newFighter(wildId, { level: rogueBossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
+      : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor), statScale: 0.9 });
     beginBattle(p, e, isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!`);
   };
 
@@ -461,8 +463,8 @@ export default function CatemonBattle() {
     const wildId = randomFoeId(world.catId);
     const area = AREAS[world.area];
     const e = isBoss
-      ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE] })
-      : newFighter(wildId, { level: worldWildLevel(world.area) });
+      ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
+      : newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9 });
     beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
   };
 
@@ -615,13 +617,22 @@ export default function CatemonBattle() {
       setEnemyF(next.snapshot.enemy);
     }
     if (next.sfx) play(next.sfx);
-    if (next.shake) {
-      setShake(next.shake);
-      setTimeout(() => setShake(null), 350);
-    }
-    if (next.spin) {
-      setSpinning(next.spin);
-      setTimeout(() => setSpinning(null), 1300);
+    // one CSS animation class per fighter per event line
+    const ANIMS = {
+      shake:   { cls: "shaking",   ms: 350 },
+      spin:    { cls: "heli-spin", ms: 1300 },
+      lunge:   { cls: "lunging",   ms: 450 },
+      wobble:  { cls: "wobbling",  ms: 750 },
+      buffAnim: { cls: "buffing",  ms: 750 },
+      healAnim: { cls: "healing",  ms: 850 },
+      debuff:  { cls: "debuffed",  ms: 650 },
+    };
+    for (const [flag, { cls, ms }] of Object.entries(ANIMS)) {
+      const target = next[flag];
+      if (!target) continue;
+      clearTimeout(animTimers.current[target]);
+      setAnim((a) => ({ ...a, [target]: cls }));
+      animTimers.current[target] = setTimeout(() => setAnim((a) => ({ ...a, [target]: null })), ms);
     }
     if (next.uno) {
       setUnoCard(true);
@@ -722,6 +733,19 @@ export default function CatemonBattle() {
       @keyframes shake { 25% { transform: translateX(-5px);} 50% { transform: translateX(5px);} 75% { transform: translateX(-3px);} }
       .heli-spin { animation: helispin 1.2s cubic-bezier(0.3, 0, 0.7, 1); }
       @keyframes helispin { to { transform: rotate(1080deg); } }
+      .slot-player.lunging { animation: lunge-r 0.45s ease; }
+      @keyframes lunge-r { 35% { transform: translate(28px, -20px); } }
+      .slot-enemy.lunging { animation: lunge-l 0.45s ease; }
+      @keyframes lunge-l { 35% { transform: translate(-28px, 20px); } }
+      .wobbling { animation: wobble 0.7s ease; }
+      @keyframes wobble { 20% { transform: rotate(13deg);} 40% { transform: rotate(-13deg);}
+        60% { transform: rotate(9deg);} 80% { transform: rotate(-9deg);} }
+      .buffing { animation: buffup 0.7s ease; }
+      @keyframes buffup { 40% { transform: scale(1.16); filter: drop-shadow(0 0 10px #f6c860) brightness(1.25); } }
+      .healing { animation: healup 0.8s ease; }
+      @keyframes healup { 45% { transform: translateY(-8px); filter: brightness(1.5) hue-rotate(60deg); } }
+      .debuffed { animation: debuffdown 0.6s ease; }
+      @keyframes debuffdown { 45% { transform: scale(0.85) translateY(6px); filter: grayscale(0.9) brightness(0.7); } }
       .fainted-anim { animation: faint 0.6s steps(6) forwards; }
       @keyframes faint { to { transform: translateY(30px); opacity: 0; } }
       .uno-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -785,21 +809,16 @@ export default function CatemonBattle() {
       .world-screen { flex: 1; display: flex; flex-direction: column; background: #22241c; }
       .world-header { display: flex; justify-content: space-between; padding: 6px 10px; background: #14151c; }
       .world-header span { font-size: 7px; color: #d8d4b8; }
-      .tilegrid { flex: 1; display: grid; grid-template-columns: repeat(14, 1fr); align-content: center; padding: 4px; gap: 0; }
+      .tilegrid { flex: 1; display: grid; grid-template-columns: repeat(14, 1fr); align-content: center; padding: 4px; gap: 0;
+        touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+      .tilegrid img { pointer-events: none; -webkit-user-drag: none; }
       .tile { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px;
         position: relative; }
       .tile .tile-emoji { font-size: 11px; line-height: 1; }
       .world-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px;
         background: #14151c; gap: 8px; }
       .world-stats { font-size: 6px; color: #d8d4b8; line-height: 1.8; flex: 1; }
-      .dpad { display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(2, 30px); gap: 2px; }
-      .dpad button { font-family: inherit; font-size: 10px; background: #2e3040; color: #d8d4b8;
-        border: 2px solid #4a4d62; border-radius: 6px; cursor: pointer; padding: 0; }
-      .dpad button:active { background: #3e4055; }
-      .dpad .d-up { grid-column: 2; grid-row: 1; }
-      .dpad .d-left { grid-column: 1; grid-row: 2; }
-      .dpad .d-down { grid-column: 2; grid-row: 2; }
-      .dpad .d-right { grid-column: 3; grid-row: 2; }
+      .world-hint { font-size: 5px; color: #6a6d84; text-align: right; line-height: 1.9; }
       .toast { position: absolute; bottom: 14%; left: 50%; transform: translateX(-50%); background: #14151c;
         color: #f6c860; font-size: 7px; padding: 8px 12px; border-radius: 6px; border: 2px solid #f6c860;
         z-index: 6; white-space: nowrap; }
@@ -912,13 +931,28 @@ export default function CatemonBattle() {
       if (t === "C") return { background: pal.accent };
       return { background: pal.floor };
     };
+    const onSwipeStart = (e) => {
+      e.preventDefault(); // stop text-selection/native drag from eating the pointerup
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      swipeStart.current = { x: e.clientX, y: e.clientY };
+    };
+    const onSwipeEnd = (e) => {
+      const s = swipeStart.current;
+      swipeStart.current = null;
+      if (!s) return;
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+      if (Math.abs(dx) > Math.abs(dy)) tryMove(Math.sign(dx), 0);
+      else tryMove(0, Math.sign(dy));
+    };
     inner = (
       <div className="world-screen">
         <div className="world-header">
           <span>{area.name}</span>
           <span>¢{world.coins}</span>
         </div>
-        <div className="tilegrid">
+        <div className="tilegrid" onPointerDown={onSwipeStart} onPointerUp={onSwipeEnd}>
           {area.map.flatMap((row, y) =>
             [...row].map((t, x) => {
               const isPlayer = world.x === x && world.y === y;
@@ -944,12 +978,7 @@ export default function CatemonBattle() {
             {CATS[world.catId].name} LV.{world.level}<br />
             HP {world.hp}/{world.maxHp} · 🍡×{world.bag.churu} 🌱×{world.bag.catnip} 🛡×{world.bag.armor}
           </div>
-          <div className="dpad">
-            <button className="d-up" onClick={() => tryMove(0, -1)}>▲</button>
-            <button className="d-left" onClick={() => tryMove(-1, 0)}>◀</button>
-            <button className="d-down" onClick={() => tryMove(0, 1)}>▼</button>
-            <button className="d-right" onClick={() => tryMove(1, 0)}>▶</button>
-          </div>
+          <div className="world-hint">SWIPE OR<br />ARROW KEYS<br />TO MOVE</div>
         </div>
         {toast && <div className="toast">{toast}</div>}
       </div>
@@ -1061,10 +1090,10 @@ export default function CatemonBattle() {
           <div className="platform plat-player" />
           <InfoBox f={enemyF} showNum={false} align="enemy" showLv={showLv} />
           <InfoBox f={playerF} showNum={true} align="player" showLv={showLv} />
-          <div className={`slot-enemy ${shake === "enemy" ? "shaking" : ""} ${spinning === "enemy" ? "heli-spin" : ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
+          <div className={`slot-enemy ${anim.enemy ?? ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
             <CatPhoto id={enemyF.base.id} size={78} />
           </div>
-          <div className={`slot-player ${shake === "player" ? "shaking" : ""} ${spinning === "player" ? "heli-spin" : ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
+          <div className={`slot-player ${anim.player ?? ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
             <CatPhoto id={playerF.base.id} size={100} flip />
           </div>
           {unoCard && (
