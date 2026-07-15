@@ -304,6 +304,7 @@ const CAT_SOUNDS = {
   maxwell: ["sounds/Maxwell-1.mp3", "sounds/Maxwell-2.mp3"].map(asset),
   oiia:   ["sounds/oiia-oiia-1.mp3", "sounds/oiia-oiia-2.mp3"].map(asset),
   banana: ["sounds/happy-cat-1.mp3", "sounds/happy-cat-2.mp3"].map(asset),
+  quaso:  ["sounds/quaso-1.mp3"].map(asset),
 };
 
 function useSfx() {
