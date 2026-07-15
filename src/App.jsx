@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, BOSS_MOVE } from "./cats.js";
 import { newFighter, buildRound, levelMul } from "./battle.js";
-import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup } from "./world.js";
+import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses } from "./world.js";
 
 /* ============================================================
    CATÉMON — meme cat battle & adventure
@@ -203,6 +203,7 @@ function StatusRow({ f }) {
   if (f.atkStage < 0) tags.push(`ATK${"▼".repeat(-f.atkStage)}`);
   if (f.defStage > 0) tags.push(`DEF${"▲".repeat(f.defStage)}`);
   if (f.defStage < 0) tags.push(`DEF${"▼".repeat(-f.defStage)}`);
+  if (f.spdStage > 0) tags.push(`SPD${"▲".repeat(f.spdStage)}`);
   if (f.confusedTurns > 0) tags.push("CONFUSED");
   if (f.reflect) tags.push("UNO!");
   if (!tags.length) return null;
@@ -374,8 +375,19 @@ export default function CatemonBattle() {
     showNotice(text);
   };
 
+  /* perk bonuses + equipped gear folded together for the battle fighter */
+  const totalBonuses = (s) => {
+    const b = { ...s.bonuses };
+    if (s.gear) {
+      for (const [stat, amt] of Object.entries(gearBonuses(s.gear))) {
+        b[stat] = (b[stat] ?? 0) + amt;
+      }
+    }
+    return b;
+  };
+
   const playerFighterFrom = (s) =>
-    newFighter(s.catId, { level: s.level, bonuses: s.bonuses, hp: s.hp, healsLeft: s.healsLeft });
+    newFighter(s.catId, { level: s.level, bonuses: totalBonuses(s), hp: s.hp, healsLeft: s.healsLeft });
 
   const randomFoeId = (notId) => {
     const others = ENEMY_IDS.filter((c) => c !== notId);
@@ -393,10 +405,14 @@ export default function CatemonBattle() {
     beginBattle(p, e, isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!`);
   };
 
+  /* max HP from level + perks + gear — the single source of truth */
+  const computeMaxHp = (s, level = s.level) =>
+    Math.round(CATS[s.catId].stats.hp * levelMul(level)) + (totalBonuses(s).hp ?? 0);
+
   /* levels: +1 per win, stats +6%/level; the max-HP gain also heals */
   const levelUpState = (s, finalPlayer) => {
     const lvl = s.level + 1;
-    const newMaxHp = Math.round(CATS[s.catId].stats.hp * levelMul(lvl)) + (s.bonuses.hp ?? 0);
+    const newMaxHp = computeMaxHp(s, lvl);
     const hpGain = newMaxHp - s.maxHp;
     return {
       ...s, level: lvl, maxHp: newMaxHp,
@@ -439,7 +455,8 @@ export default function CatemonBattle() {
       catId, level: 1, hp: f.maxHp, maxHp: f.maxHp,
       bonuses: {}, healsLeft: 3,
       area: 0, x: spawn.x, y: spawn.y,
-      coins: 15, bag: { churu: 1, catnip: 0, armor: 0 }, picked: [],
+      coins: 15, bag: { churu: 1 }, picked: [],
+      gear: { owned: [], collar: null, charm: null },
     });
     setScreen("world");
     play("start");
@@ -449,6 +466,8 @@ export default function CatemonBattle() {
     try {
       const saved = JSON.parse(localStorage.getItem(WORLD_SAVE));
       if (saved?.catId && saved?.bag) {
+        // migrate pre-equipment saves
+        saved.gear ??= { owned: [], collar: null, charm: null };
         setWorld(saved);
         setMode("world");
         setScreen("world");
@@ -489,10 +508,18 @@ export default function CatemonBattle() {
         setScreen("victory");
         return;
       }
+      // bosses drop a piece of gear you don't own yet
+      let dropText = "";
+      const unowned = EQUIP_IDS.filter((id) => !w.gear.owned.includes(id));
+      if (unowned.length) {
+        const drop = unowned[Math.floor(Math.random() * unowned.length)];
+        w = { ...w, gear: { ...w.gear, owned: [...w.gear.owned, drop] } };
+        dropText = ` The boss dropped a ${EQUIPMENT[drop].name}!`;
+      }
       const nextArea = world.area + 1;
       const spawn = findTile(AREAS[nextArea].map, "S");
       setWorld({ ...w, area: nextArea, x: spawn.x, y: spawn.y });
-      showNotice(`The gate opens! ${catName} grew to LV.${w.level}! Welcome to ${AREAS[nextArea].name}. (+${coins} coins)`, "world");
+      showNotice(`The gate opens! ${catName} grew to LV.${w.level}!${dropText} Welcome to ${AREAS[nextArea].name}. (+${coins} coins)`, "world");
     } else {
       setWorld(w);
       showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!`, "world");
@@ -522,11 +549,14 @@ export default function CatemonBattle() {
       if (t === "i") {
         const key = `${w.area}:${nx},${ny}`;
         if (!w.picked.includes(key)) {
-          const got = rollPickup();
+          const got = rollPickup(w.gear?.owned ?? []);
           next = { ...next, picked: [...w.picked, key] };
           if (got.coins) {
             next = { ...next, coins: next.coins + got.coins };
             showToast(`Found ${got.coins} coins!`);
+          } else if (got.equip) {
+            next = { ...next, gear: { ...next.gear, owned: [...next.gear.owned, got.equip] } };
+            showToast(`Found a ${EQUIPMENT[got.equip].name}! (gear)`);
           } else {
             next = { ...next, bag: { ...next.bag, [got.item]: (next.bag[got.item] ?? 0) + 1 } };
             showToast(`Found a ${ITEMS[got.item].name}!`);
@@ -577,6 +607,29 @@ export default function CatemonBattle() {
       coins: world.coins - item.price,
       bag: { ...world.bag, [id]: (world.bag[id] ?? 0) + 1 },
     });
+  };
+
+  const buyEquip = (id) => {
+    const eq = EQUIPMENT[id];
+    if (world.gear.owned.includes(id)) return;
+    if (world.coins < eq.price) { showToast("Not enough coins!"); return; }
+    play("coin");
+    setWorld({
+      ...world,
+      coins: world.coins - eq.price,
+      gear: { ...world.gear, owned: [...world.gear.owned, id] },
+    });
+  };
+
+  /* equip/unequip; max HP changes flow into current HP sensibly */
+  const setGearSlot = (slot, id) => {
+    play("select");
+    const w2 = { ...world, gear: { ...world.gear, [slot]: id } };
+    const newMaxHp = computeMaxHp(w2);
+    const hpDelta = newMaxHp - world.maxHp;
+    w2.maxHp = newMaxHp;
+    w2.hp = Math.max(1, Math.min(newMaxHp, world.hp + Math.max(0, hpDelta)));
+    setWorld(w2);
   };
 
   /* ---------- battle event loop ---------- */
@@ -858,7 +911,12 @@ export default function CatemonBattle() {
         color: #f6c860; font-size: 7px; padding: 8px 12px; border-radius: 6px; border: 2px solid #f6c860;
         z-index: 6; white-space: nowrap; }
       /* center */
-      .center-screen { flex: 1; background: #d8e8e0; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .center-screen { flex: 1; background: #d8e8e0; padding: 14px; display: flex; flex-direction: column; gap: 8px;
+        overflow-y: auto; }
+      .shop-section { font-size: 7px; color: #4a6a5a; margin-top: 6px; letter-spacing: 1px; }
+      .gear-none { font-size: 6px; color: #8a8c74; padding: 4px 0; }
+      .gearbtn { font-family: inherit; font-size: 7px; background: #2e3040; color: #f6c860;
+        border: 2px solid #4a4d62; border-radius: 6px; padding: 8px 8px; cursor: pointer; }
       .center-title { font-size: 10px; color: #2a4c3a; text-align: center; }
       .center-coins { font-size: 8px; color: #8a5a2a; text-align: center; }
       .shop-item { display: flex; align-items: center; gap: 8px; background: #fdfbf0; border: 3px solid #3a3c30;
@@ -1010,10 +1068,11 @@ export default function CatemonBattle() {
         </div>
         <div className="world-footer">
           <div className="world-stats">
-            {CATS[world.catId].name} LV.{world.level}<br />
-            HP {world.hp}/{world.maxHp} · 🍡×{world.bag.churu} 🌱×{world.bag.catnip} 🛡×{world.bag.armor}
+            {CATS[world.catId].name} LV.{world.level} · HP {world.hp}/{world.maxHp}<br />
+            {Object.keys(ITEMS).filter((id) => (world.bag[id] ?? 0) > 0).map((id) => `${ITEMS[id].icon}×${world.bag[id]}`).join(" ") || "bag empty"}
           </div>
-          <div className="world-hint">SWIPE OR<br />ARROW KEYS<br />TO MOVE</div>
+          <button className="gearbtn" onClick={() => { setScreen("gear"); play("select"); }}>🎽 GEAR</button>
+          <div className="world-hint">SWIPE OR<br />ARROWS<br />TO MOVE</div>
         </div>
         {toast && <div className="toast">{toast}</div>}
       </div>
@@ -1027,6 +1086,7 @@ export default function CatemonBattle() {
           FREE HEAL
           <small>Full HP + restock snacks</small>
         </button>
+        <div className="shop-section">ITEMS</div>
         {Object.values(ITEMS).map((item) => (
           <div key={item.id} className="shop-item">
             <span>{item.icon}</span>
@@ -1037,10 +1097,57 @@ export default function CatemonBattle() {
             <button disabled={world.coins < item.price} onClick={() => buyItem(item.id)}>BUY</button>
           </div>
         ))}
-        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("world"); play("select"); }}>
+        <div className="shop-section">GEAR (equip from the map screen)</div>
+        {Object.values(EQUIPMENT).map((eq) => {
+          const owned = world.gear.owned.includes(eq.id);
+          return (
+            <div key={eq.id} className="shop-item">
+              <span>{eq.icon}</span>
+              <div className="si-info">
+                <div className="si-name">{eq.name} — {owned ? "OWNED" : `¢${eq.price}`}</div>
+                <div className="si-desc">{eq.desc} · {eq.slot} slot</div>
+              </div>
+              <button disabled={owned || world.coins < eq.price} onClick={() => buyEquip(eq.id)}>{owned ? "✓" : "BUY"}</button>
+            </div>
+          );
+        })}
+        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setScreen("world"); play("select"); }}>
           LEAVE
         </button>
         {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
+  } else if (screen === "gear") {
+    inner = (
+      <div className="center-screen">
+        <div className="center-title">🎽 GEAR</div>
+        {["collar", "charm"].map((slot) => {
+          const equippedId = world.gear[slot];
+          const options = world.gear.owned.filter((id) => EQUIPMENT[id].slot === slot);
+          return (
+            <div key={slot}>
+              <div className="shop-section">{slot.toUpperCase()} — {equippedId ? `${EQUIPMENT[equippedId].icon} ${EQUIPMENT[equippedId].name}` : "empty"}</div>
+              {options.length === 0 && <div className="gear-none">nothing owned for this slot yet</div>}
+              {options.map((id) => {
+                const eq = EQUIPMENT[id];
+                const isOn = equippedId === id;
+                return (
+                  <div key={id} className="shop-item">
+                    <span>{eq.icon}</span>
+                    <div className="si-info">
+                      <div className="si-name">{eq.name}</div>
+                      <div className="si-desc">{eq.desc}</div>
+                    </div>
+                    <button onClick={() => setGearSlot(slot, isOn ? null : id)}>{isOn ? "REMOVE" : "EQUIP"}</button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("world"); play("select"); }}>
+          BACK
+        </button>
       </div>
     );
   } else if (screen === "event") {
@@ -1078,7 +1185,7 @@ export default function CatemonBattle() {
         <div className="spinwrap"><CatPhoto id={champ.catId} size={90} /></div>
         <div className="over-title">MEME CAT<br />CHAMPION!<br />
           <span style={{ fontSize: 9, color: "#a8acc4" }}>
-            {CATS[champ.catId].name} conquered Ohio at LV.{champ.level}!
+            {CATS[champ.catId].name} conquered the meme universe at LV.{champ.level}!
           </span>
         </div>
         <button className="bigbtn" onClick={() => { setRun(null); setWorld(null); setScreen("title"); play("select"); }}>TITLE</button>

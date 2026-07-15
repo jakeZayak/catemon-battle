@@ -40,6 +40,7 @@ export function newFighter(catId, opts = {}) {
     maxHp: stats.hp,
     atkStage: 0,
     defStage: 0,
+    spdStage: 0,
     confusedTurns: 0,
     reflect: false,
     healsLeft: opts.healsLeft ?? 2,
@@ -160,6 +161,18 @@ function useMove(state, userKey, foeKey, move, rng) {
       events.push({ text: `${user().name}'s DEF can't go higher!`, snapshot: snap() });
     }
   }
+  if (fx.spdUp) {
+    if (user().spdStage < 2) {
+      state[userKey] = { ...user(), spdStage: user().spdStage + 1 };
+      events.push({ text: `${user().name}'s SPD rose!`, snapshot: snap(), sfx: "buff", buffAnim: userKey });
+    } else {
+      events.push({ text: `${user().name}'s SPD can't go higher!`, snapshot: snap() });
+    }
+  }
+  if (fx.cureConfuse && user().confusedTurns > 0) {
+    state[userKey] = { ...user(), confusedTurns: 0 };
+    events.push({ text: `${user().name} snapped out of confusion!`, snapshot: snap(), sfx: "status", healAnim: userKey });
+  }
   if (fx.heal) {
     if (!move.item && user().healsLeft <= 0) {
       events.push({ text: `But there's nothing left to eat!`, snapshot: snap() });
@@ -209,8 +222,8 @@ export function buildRound(playerF, enemyF, playerMove, rng) {
   let playerFirst;
   if (pPrio !== ePrio) playerFirst = pPrio;
   else {
-    const pSpd = state.player.stats.spd;
-    const eSpd = state.enemy.stats.spd;
+    const pSpd = state.player.stats.spd * stageMul(state.player.spdStage);
+    const eSpd = state.enemy.stats.spd * stageMul(state.enemy.spdStage);
     playerFirst = pSpd === eSpd ? rng() < 0.5 : pSpd > eSpd;
   }
 
