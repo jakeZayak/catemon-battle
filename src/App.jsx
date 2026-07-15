@@ -108,14 +108,14 @@ const CATS = {
   banana: {
     id: "banana",
     name: "BANANA CAT",
-    type: "TEARS",
-    tagline: "sobbing intensifies",
+    type: "HAPPY",
+    tagline: "happy happy happy",
     stats: { hp: 116, atk: 23, def: 22, spd: 12 },
     moves: [
-      { key: "cry",    name: "BANANA SUIT",  power: 0,  acc: 90,  desc: "Overwhelming sadness confuses foe.",  fx: { confuse: 1.0 } },
-      { key: "stream", name: "TEAR STREAM",  power: 50, acc: 100, desc: "Damage + 15% recoil from sobbing.",   fx: { recoil: 0.15 } },
-      { key: "wail",   name: "FULL WAIL",    power: 90, acc: 72,  desc: "Maximum volume. Very risky aim.",     fx: {} },
-      { key: "split",  name: "BANANA SPLIT", power: 0,  acc: 100, desc: "Eats the banana. Restores 40% HP.",   fx: { heal: 0.4 } },
+      { key: "suit",    name: "BANANA SUIT",   power: 0,  acc: 90,  desc: "Inexplicable banana. Confuses foe.",  fx: { confuse: 1.0 } },
+      { key: "zoomies", name: "ZOOMIES",       power: 50, acc: 100, desc: "Joyful charge. 15% crash recoil.",    fx: { recoil: 0.15 } },
+      { key: "happy",   name: "HAPPY HAPPY",   power: 90, acc: 72,  desc: "Pure joy at max volume. Risky aim.",  fx: {} },
+      { key: "split",   name: "BANANA SPLIT",  power: 0,  acc: 100, desc: "Eats the banana. Restores 40% HP.",   fx: { heal: 0.4 } },
     ],
   },
 };
