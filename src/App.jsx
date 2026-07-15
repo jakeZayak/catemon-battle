@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS } from "./cats.js";
+import { CATS, CAT_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, BOSS_MOVE } from "./cats.js";
 import { newFighter, buildRound, levelMul } from "./battle.js";
+import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup } from "./world.js";
 
 /* ============================================================
    CATÉMON — meme cat battle & adventure
@@ -23,9 +24,10 @@ function CatPhoto({ id, size = 96, flip = false, className = "", style = {} }) {
   );
 }
 
-/* ---------- adventure data ---------- */
+/* ---------- roguelike data ---------- */
 
-const SAVE_KEY = "catemon-save-v1";
+const ROGUE_SAVE = "catemon-save-v1";
+const WORLD_SAVE = "catemon-world-v1";
 
 const ZONES = [
   { name: "THE KITCHEN", flavor: "Something smells illegal in here.", bossPrefix: "ALPHA" },
@@ -53,8 +55,9 @@ function genZoneMap(rng = Math.random) {
   return floors;
 }
 
-const wildLevel = (zone, floor) => 1 + zone * 3 + floor;
-const bossLevel = (zone) => 7 + zone * 3;
+/* friendly curve: wilds lag behind the player's expected level */
+const rogueWildLevel = (zone, floor) => 1 + zone * 2 + Math.floor(floor / 2);
+const rogueBossLevel = (zone) => 5 + zone * 3;
 
 /* Meme events: each has 2 choices; apply(run) => [newRun, resultText] */
 const clampHp = (r) => ({ ...r, hp: Math.max(1, Math.min(r.hp, r.maxHp)) });
@@ -129,17 +132,19 @@ function useSfx() {
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
 
+    const playFile = (src) => {
+      if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
+      const audio = new Audio(src);
+      catAudioRef.current = audio;
+      audio.play().catch(() => {});
+    };
+
+    if (kind === "helicopter") { playFile(HELICOPTER_SOUND); return; }
+
     // Cat move sounds — random clip from the cat's pool
     if (kind.startsWith("cat:")) {
-      const catId = kind.slice(4);
-      const pool = CAT_SOUNDS[catId];
-      if (pool?.length) {
-        if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
-        const audio = new Audio(pool[Math.floor(Math.random() * pool.length)]);
-        catAudioRef.current = audio;
-        audio.play().catch(() => {});
-        return;
-      }
+      const pool = CAT_SOUNDS[kind.slice(4)];
+      if (pool?.length) { playFile(pool[Math.floor(Math.random() * pool.length)]); return; }
       kind = "select"; // no audio files for this cat → chiptune
     }
 
@@ -167,6 +172,8 @@ function useSfx() {
       if (kind === "heal") { beep(659, 0, 0.08); beep(784, 0.09, 0.08); beep(1046, 0.18, 0.12); }
       if (kind === "faint") { beep(330, 0, 0.12, "triangle", 0.09); beep(220, 0.12, 0.14, "triangle", 0.08); beep(147, 0.26, 0.25, "triangle", 0.08); }
       if (kind === "start") { beep(523, 0, 0.08); beep(523, 0.1, 0.08); beep(784, 0.2, 0.16); }
+      if (kind === "coin") { beep(988, 0, 0.06); beep(1319, 0.07, 0.1); }
+      if (kind === "step") beep(180, 0, 0.03, "triangle", 0.02);
     } catch (e) {
       /* audio unavailable */
     }
@@ -197,6 +204,7 @@ function StatusRow({ f }) {
   if (f.defStage > 0) tags.push(`DEF${"▲".repeat(f.defStage)}`);
   if (f.defStage < 0) tags.push(`DEF${"▼".repeat(-f.defStage)}`);
   if (f.confusedTurns > 0) tags.push("CONFUSED");
+  if (f.reflect) tags.push("UNO!");
   if (!tags.length) return null;
   return (
     <div className="status-row">
@@ -222,11 +230,14 @@ function InfoBox({ f, showNum, align, showLv }) {
 /* ---------- main app ---------- */
 
 export default function CatemonBattle() {
-  const [screen, setScreen] = useState("title"); // title|select|map|event|notice|battle|over|victory
-  const [mode, setMode] = useState("quick");     // quick | adventure
-  const [run, setRun] = useState(null);          // adventure run state
+  const [screen, setScreen] = useState("title"); // title|select|map|world|center|event|notice|battle|over|victory
+  const [mode, setMode] = useState("quick");     // quick | rogue | world
+  const [run, setRun] = useState(null);          // roguelike run state
+  const [world, setWorld] = useState(null);      // overworld state
   const [currentEvent, setCurrentEvent] = useState(null);
-  const [notice, setNotice] = useState(null);    // { text, goto: "map"|"victory" }
+  const [notice, setNotice] = useState(null);    // { text, goto }
+  const [confirm, setConfirm] = useState(null);  // { text, onYes }
+  const [toast, setToast] = useState(null);      // transient overworld message
   const [playerF, setPlayerF] = useState(null);
   const [enemyF, setEnemyF] = useState(null);
   const [queue, setQueue] = useState([]);
@@ -234,10 +245,17 @@ export default function CatemonBattle() {
   const [phase, setPhase] = useState("intro");
   const [outcome, setOutcome] = useState(null);
   const [shake, setShake] = useState(null);
+  const [spinning, setSpinning] = useState(null); // helicopter move
+  const [unoCard, setUnoCard] = useState(false);
   const [fainting, setFainting] = useState(null);
+  const [showBag, setShowBag] = useState(false);
   const [muted, setMuted] = useState(false);
-  const [hasSave, setHasSave] = useState(() => !!localStorage.getItem(SAVE_KEY));
-  const advIsBoss = useRef(false);
+  const [saves, setSaves] = useState(() => ({
+    rogue: !!localStorage.getItem(ROGUE_SAVE),
+    world: !!localStorage.getItem(WORLD_SAVE),
+  }));
+  const battleIsBoss = useRef(false);
+  const toastTimer = useRef(null);
   const { play, mutedRef, catAudioRef } = useSfx();
   const rng = Math.random;
 
@@ -249,68 +267,81 @@ export default function CatemonBattle() {
     }
   }, [muted, mutedRef, catAudioRef]);
 
-  // auto-save at node boundaries (run only changes between battles);
-  // skip end-of-run screens so a finished run never re-saves after clearSave
-  useEffect(() => {
-    if (run && screen !== "victory" && screen !== "over" && screen !== "title") {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(run));
-      setHasSave(true);
-    }
-  }, [run, screen]);
+  const END_SCREENS = ["victory", "over", "title"];
 
-  const clearSave = () => {
-    localStorage.removeItem(SAVE_KEY);
-    setHasSave(false);
+  // auto-save both modes at safe boundaries
+  useEffect(() => {
+    if (run && !END_SCREENS.includes(screen)) {
+      localStorage.setItem(ROGUE_SAVE, JSON.stringify(run));
+      setSaves((s) => ({ ...s, rogue: true }));
+    }
+  }, [run, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (world && !END_SCREENS.includes(screen)) {
+      localStorage.setItem(WORLD_SAVE, JSON.stringify(world));
+      setSaves((s) => ({ ...s, world: true }));
+    }
+  }, [world, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clearSave = (key) => {
+    localStorage.removeItem(key === ROGUE_SAVE ? ROGUE_SAVE : WORLD_SAVE);
+    setSaves((s) => ({ ...s, [key === ROGUE_SAVE ? "rogue" : "world"]: false }));
+  };
+
+  const showToast = (text) => {
+    setToast(text);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
   };
 
   /* ---------- quick battle ---------- */
 
-  const startBattle = (catId) => {
+  const startQuickBattle = (catId) => {
+    battleIsBoss.current = false;
     const p = newFighter(catId);
     const others = CAT_IDS.filter((c) => c !== catId);
     const e = newFighter(others[Math.floor(Math.random() * others.length)]);
+    beginBattle(p, e, `A wild ${e.name} appeared!`);
+  };
+
+  const beginBattle = (p, e, introText) => {
     setPlayerF(p);
     setEnemyF(e);
     setOutcome(null);
     setFainting(null);
+    setShowBag(false);
     setQueue([]);
-    setCurrent({ text: `A wild ${e.name} appeared!` });
+    setCurrent({ text: introText });
     setPhase("intro");
     setScreen("battle");
     play("start");
   };
 
-  /* ---------- adventure ---------- */
+  /* ---------- roguelike ---------- */
 
-  const startAdventure = (catId) => {
+  const startRogue = (catId) => {
     const f = newFighter(catId);
     setRun({
-      catId,
-      level: 1,
-      hp: f.maxHp,
-      maxHp: f.maxHp,
-      bonuses: {},
-      healsLeft: 2,
-      zone: 0,
-      floor: 0,
-      map: genZoneMap(),
+      catId, level: 1, hp: f.maxHp, maxHp: f.maxHp,
+      bonuses: {}, healsLeft: 3, zone: 0, floor: 0, map: genZoneMap(),
     });
     setScreen("map");
     play("start");
   };
 
-  const continueRun = () => {
+  const continueRogue = () => {
     try {
-      const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
+      const saved = JSON.parse(localStorage.getItem(ROGUE_SAVE));
       if (saved?.catId && saved?.map) {
         setRun(saved);
-        setMode("adventure");
+        setMode("rogue");
         setScreen("map");
         play("start");
         return;
       }
     } catch (e) { /* corrupted save */ }
-    clearSave();
+    clearSave(ROGUE_SAVE);
   };
 
   const showNotice = (text, goto = "map") => {
@@ -321,13 +352,13 @@ export default function CatemonBattle() {
   const chooseNode = (type) => {
     play("select");
     if (type === "battle" || type === "boss") {
-      startAdvBattle(type === "boss");
+      startRogueBattle(type === "boss");
     } else if (type === "event") {
       setCurrentEvent(EVENTS[Math.floor(Math.random() * EVENTS.length)]);
       setScreen("event");
     } else if (type === "rest") {
       const healed = Math.min(Math.round(run.maxHp * 0.6), run.maxHp - run.hp);
-      setRun({ ...run, hp: run.hp + healed, healsLeft: 2, floor: run.floor + 1 });
+      setRun({ ...run, hp: run.hp + healed, healsLeft: 3, floor: run.floor + 1 });
       showNotice(`The vet was surprisingly gentle. Restored ${healed} HP and restocked snacks!`);
     }
   };
@@ -339,69 +370,216 @@ export default function CatemonBattle() {
     showNotice(text);
   };
 
-  const startAdvBattle = (isBoss) => {
-    advIsBoss.current = isBoss;
-    const p = newFighter(run.catId, {
-      level: run.level,
-      bonuses: run.bonuses,
-      hp: run.hp,
-      healsLeft: run.healsLeft,
-    });
-    const others = CAT_IDS.filter((c) => c !== run.catId);
-    const wildId = others[Math.floor(Math.random() * others.length)];
-    const zone = ZONES[run.zone];
-    const e = isBoss
-      ? newFighter(wildId, { level: bossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}` })
-      : newFighter(wildId, { level: wildLevel(run.zone, run.floor) });
-    setPlayerF(p);
-    setEnemyF(e);
-    setOutcome(null);
-    setFainting(null);
-    setQueue([]);
-    setCurrent({ text: isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!` });
-    setPhase("intro");
-    setScreen("battle");
-    play("start");
+  const playerFighterFrom = (s) =>
+    newFighter(s.catId, { level: s.level, bonuses: s.bonuses, hp: s.hp, healsLeft: s.healsLeft });
+
+  const randomFoeId = (notId) => {
+    const others = CAT_IDS.filter((c) => c !== notId);
+    return others[Math.floor(Math.random() * others.length)];
   };
 
-  const finishAdventureBattle = (won, finalPlayer) => {
-    if (!won) {
-      clearSave();
-      setScreen("over");
-      return;
-    }
-    const lvl = run.level + 1;
-    const base = CATS[run.catId];
-    const newMaxHp = Math.round(base.stats.hp * levelMul(lvl)) + (run.bonuses.hp ?? 0);
-    const hpGain = newMaxHp - run.maxHp; // leveling up heals by the max HP increase
-    let r = {
-      ...run,
-      level: lvl,
-      maxHp: newMaxHp,
+  const startRogueBattle = (isBoss) => {
+    battleIsBoss.current = isBoss;
+    const p = playerFighterFrom(run);
+    const wildId = randomFoeId(run.catId);
+    const zone = ZONES[run.zone];
+    const e = isBoss
+      ? newFighter(wildId, { level: rogueBossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE] })
+      : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor) });
+    beginBattle(p, e, isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!`);
+  };
+
+  /* levels: +1 per win, stats +6%/level; the max-HP gain also heals */
+  const levelUpState = (s, finalPlayer) => {
+    const lvl = s.level + 1;
+    const newMaxHp = Math.round(CATS[s.catId].stats.hp * levelMul(lvl)) + (s.bonuses.hp ?? 0);
+    const hpGain = newMaxHp - s.maxHp;
+    return {
+      ...s, level: lvl, maxHp: newMaxHp,
       hp: Math.min(newMaxHp, finalPlayer.hp + hpGain),
       healsLeft: finalPlayer.healsLeft,
     };
-    if (advIsBoss.current) {
+  };
+
+  const finishRogueBattle = (won, finalPlayer) => {
+    if (!won) {
+      clearSave(ROGUE_SAVE);
+      setScreen("over");
+      return;
+    }
+    let r = levelUpState(run, finalPlayer);
+    const catName = CATS[run.catId].name;
+    if (battleIsBoss.current) {
       if (run.zone === ZONES.length - 1) {
-        clearSave();
+        clearSave(ROGUE_SAVE);
         setRun(r);
         setScreen("victory");
         return;
       }
       r = { ...r, zone: run.zone + 1, floor: 0, map: genZoneMap() };
       setRun(r);
-      showNotice(`ZONE CLEARED! ${base.name} grew to LV.${lvl}! Next: ${ZONES[r.zone].name}...`);
+      showNotice(`ZONE CLEARED! ${catName} grew to LV.${r.level}! Next: ${ZONES[r.zone].name}...`);
     } else {
       r = { ...r, floor: run.floor + 1 };
       setRun(r);
-      showNotice(`${base.name} grew to LV.${lvl}!`);
+      showNotice(`${catName} grew to LV.${r.level}!`);
     }
+  };
+
+  /* ---------- overworld ---------- */
+
+  const startWorld = (catId) => {
+    const f = newFighter(catId);
+    const spawn = findTile(AREAS[0].map, "S");
+    setWorld({
+      catId, level: 1, hp: f.maxHp, maxHp: f.maxHp,
+      bonuses: {}, healsLeft: 3,
+      area: 0, x: spawn.x, y: spawn.y,
+      coins: 15, bag: { churu: 1, catnip: 0, armor: 0 }, picked: [],
+    });
+    setScreen("world");
+    play("start");
+  };
+
+  const continueWorld = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(WORLD_SAVE));
+      if (saved?.catId && saved?.bag) {
+        setWorld(saved);
+        setMode("world");
+        setScreen("world");
+        play("start");
+        return;
+      }
+    } catch (e) { /* corrupted save */ }
+    clearSave(WORLD_SAVE);
+  };
+
+  const startWorldBattle = (isBoss) => {
+    battleIsBoss.current = isBoss;
+    const p = playerFighterFrom(world);
+    const wildId = randomFoeId(world.catId);
+    const area = AREAS[world.area];
+    const e = isBoss
+      ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE] })
+      : newFighter(wildId, { level: worldWildLevel(world.area) });
+    beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
+  };
+
+  const finishWorldBattle = (won, finalPlayer) => {
+    if (!won) {
+      // friendly: no game over in the overworld — wake up at the area start
+      const spawn = findTile(AREAS[world.area].map, "S");
+      setWorld({ ...world, hp: world.maxHp, healsLeft: 3, x: spawn.x, y: spawn.y });
+      showNotice("You blacked out... and woke up back at the start, fully rested!", "world");
+      return;
+    }
+    let w = levelUpState(world, finalPlayer);
+    const coins = battleIsBoss.current ? 25 : 5 + enemyF.level;
+    w = { ...w, coins: w.coins + coins };
+    const catName = CATS[world.catId].name;
+    if (battleIsBoss.current) {
+      if (world.area === AREAS.length - 1) {
+        clearSave(WORLD_SAVE);
+        setWorld(w);
+        setScreen("victory");
+        return;
+      }
+      const nextArea = world.area + 1;
+      const spawn = findTile(AREAS[nextArea].map, "S");
+      setWorld({ ...w, area: nextArea, x: spawn.x, y: spawn.y });
+      showNotice(`The gate opens! ${catName} grew to LV.${w.level}! Welcome to ${AREAS[nextArea].name}. (+${coins} coins)`, "world");
+    } else {
+      setWorld(w);
+      showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!`, "world");
+    }
+  };
+
+  const tryMove = useCallback((dx, dy) => {
+    if (screen !== "world" || confirm) return;
+    setWorld((w) => {
+      if (!w) return w;
+      const map = AREAS[w.area].map;
+      const nx = w.x + dx;
+      const ny = w.y + dy;
+      const t = tileAt(map, nx, ny);
+      if (t === "#") return w;
+      play("step");
+      let next = { ...w, x: nx, y: ny };
+
+      if (t === "B") {
+        setTimeout(() => startWorldBattle(true), 120);
+        return next;
+      }
+      if (t === "C") {
+        setTimeout(() => setScreen("center"), 120);
+        return next;
+      }
+      if (t === "i") {
+        const key = `${w.area}:${nx},${ny}`;
+        if (!w.picked.includes(key)) {
+          const got = rollPickup();
+          next = { ...next, picked: [...w.picked, key] };
+          if (got.coins) {
+            next = { ...next, coins: next.coins + got.coins };
+            showToast(`Found ${got.coins} coins!`);
+          } else {
+            next = { ...next, bag: { ...next.bag, [got.item]: (next.bag[got.item] ?? 0) + 1 } };
+            showToast(`Found a ${ITEMS[got.item].name}!`);
+          }
+          play("coin");
+        }
+        return next;
+      }
+      if (t === "g" && Math.random() < GRASS_ENCOUNTER_CHANCE) {
+        setTimeout(() => startWorldBattle(false), 120);
+      }
+      return next;
+    });
+  }, [screen, confirm, play]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* keyboard: overworld movement + battle advance */
+  useEffect(() => {
+    const h = (e) => {
+      if (screen === "world") {
+        const k = e.key.toLowerCase();
+        if (k === "arrowup" || k === "w") { e.preventDefault(); tryMove(0, -1); }
+        if (k === "arrowdown" || k === "s") { e.preventDefault(); tryMove(0, 1); }
+        if (k === "arrowleft" || k === "a") { e.preventDefault(); tryMove(-1, 0); }
+        if (k === "arrowright" || k === "d") { e.preventDefault(); tryMove(1, 0); }
+      }
+      if (e.key === "Enter" || e.key === " ") {
+        if (screen === "battle" && phase !== "command" && !confirm) onAdvance();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+
+  /* ---------- center (heal + shop) ---------- */
+
+  const centerHeal = () => {
+    play("heal");
+    setWorld({ ...world, hp: world.maxHp, healsLeft: 3 });
+    showToast("Fully healed! Snacks restocked!");
+  };
+
+  const buyItem = (id) => {
+    const item = ITEMS[id];
+    if (world.coins < item.price) { showToast("Not enough coins!"); return; }
+    play("coin");
+    setWorld({
+      ...world,
+      coins: world.coins - item.price,
+      bag: { ...world.bag, [id]: (world.bag[id] ?? 0) + 1 },
+    });
   };
 
   /* ---------- battle event loop ---------- */
 
   const pickMove = (move) => {
     if (phase !== "command") return;
+    setShowBag(false);
     const { events, outcome: oc } = buildRound(playerF, enemyF, move, rng);
     setOutcome(oc);
     setQueue(events);
@@ -410,14 +588,19 @@ export default function CatemonBattle() {
     advanceWith(events, oc);
   };
 
+  const useItem = (id) => {
+    if ((world?.bag?.[id] ?? 0) <= 0) return;
+    setWorld({ ...world, bag: { ...world.bag, [id]: world.bag[id] - 1 } });
+    pickMove(itemToMove(id));
+  };
+
   const advanceWith = (q, oc) => {
     if (!q.length) {
       if (oc) {
-        if (mode === "adventure") {
-          finishAdventureBattle(oc === "win", playerF);
-        } else {
-          setScreen("over");
-        }
+        const won = oc === "win";
+        if (mode === "rogue") finishRogueBattle(won, playerF);
+        else if (mode === "world") finishWorldBattle(won, playerF);
+        else setScreen("over");
       } else {
         setPhase("command");
         setCurrent({ text: `What will ${playerF?.name ?? "your cat"} do?` });
@@ -436,6 +619,14 @@ export default function CatemonBattle() {
       setShake(next.shake);
       setTimeout(() => setShake(null), 350);
     }
+    if (next.spin) {
+      setSpinning(next.spin);
+      setTimeout(() => setSpinning(null), 1300);
+    }
+    if (next.uno) {
+      setUnoCard(true);
+      setTimeout(() => setUnoCard(false), 1000);
+    }
     if (next.faint) setFainting(next.faint);
   };
 
@@ -448,15 +639,34 @@ export default function CatemonBattle() {
     if (phase === "playing") advanceWith(queue, outcome);
   };
 
-  useEffect(() => {
-    const h = (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        if (screen === "battle" && phase !== "command") onAdvance();
-      }
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  });
+  /* ---------- run away / menu ---------- */
+
+  const fleeBattle = () => {
+    if (battleIsBoss.current) {
+      showToast("Can't run from a boss!");
+      return;
+    }
+    setConfirm({
+      text: "Run away from this battle?",
+      onYes: () => {
+        play("select");
+        if (mode === "rogue") setScreen("map");
+        else if (mode === "world") setScreen("world");
+        else setScreen("title");
+      },
+    });
+  };
+
+  const menuButton = () => {
+    const saved = mode === "quick" ? "" : " Your progress is saved.";
+    setConfirm({
+      text: `Return to the title screen?${saved}`,
+      onYes: () => {
+        play("select");
+        setScreen("title");
+      },
+    });
+  };
 
   /* ---------- css ---------- */
 
@@ -467,9 +677,9 @@ export default function CatemonBattle() {
         background: #1a1c22; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 12px; }
       .cb-shell { width: 100%; max-width: 440px; background: #2e3040; border-radius: 18px; padding: 14px 14px 18px;
         box-shadow: 0 8px 0 #14151c, inset 0 2px 0 rgba(255,255,255,0.08); }
-      .cb-shell-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-      .cb-brand { color: #8a8ea6; font-size: 8px; letter-spacing: 1px; }
-      .cb-mute { background: #1e2028; color: #b8bcd0; border: 2px solid #4a4d62; border-radius: 6px;
+      .cb-shell-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 6px; }
+      .cb-brand { color: #8a8ea6; font-size: 8px; letter-spacing: 1px; flex: 1; }
+      .cb-mute, .cb-menu { background: #1e2028; color: #b8bcd0; border: 2px solid #4a4d62; border-radius: 6px;
         font-family: inherit; font-size: 8px; padding: 6px 8px; cursor: pointer; }
       .screen { background: #f4f2e2; border: 4px solid #14151c; border-radius: 8px; overflow: hidden;
         aspect-ratio: 10 / 11; display: flex; flex-direction: column; position: relative; }
@@ -504,38 +714,54 @@ export default function CatemonBattle() {
         border: 3px solid #3a3c30; border-radius: 6px; cursor: pointer; line-height: 1.5; }
       .movebtn:active { background: #ece8d0; transform: translateY(1px); }
       .movebtn small { display: block; font-size: 6px; color: #8a8c74; margin-top: 4px; }
+      .battle-actions { display: flex; gap: 7px; margin-top: 7px; }
+      .actionbtn { flex: 1; font-family: inherit; font-size: 7px; padding: 8px 6px; background: #e8e2c8;
+        color: #4a4c40; border: 3px solid #3a3c30; border-radius: 6px; cursor: pointer; }
+      .actionbtn:active { background: #d8d2b8; }
       .shaking { animation: shake 0.32s steps(4); }
       @keyframes shake { 25% { transform: translateX(-5px);} 50% { transform: translateX(5px);} 75% { transform: translateX(-3px);} }
+      .heli-spin { animation: helispin 1.2s cubic-bezier(0.3, 0, 0.7, 1); }
+      @keyframes helispin { to { transform: rotate(1080deg); } }
       .fainted-anim { animation: faint 0.6s steps(6) forwards; }
       @keyframes faint { to { transform: translateY(30px); opacity: 0; } }
+      .uno-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        pointer-events: none; z-index: 5; }
+      .uno-card { width: 90px; height: 130px; background: linear-gradient(135deg, #d02020 48%, #b01818 52%);
+        border: 5px solid #fff; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+        display: flex; align-items: center; justify-content: center; animation: unopop 1s ease; }
+      .uno-card .uno-inner { width: 62px; height: 96px; background: #fff; border-radius: 50% / 42%;
+        transform: rotate(-25deg); display: flex; align-items: center; justify-content: center;
+        color: #d02020; font-size: 26px; font-weight: bold; }
+      @keyframes unopop { 0% { transform: scale(0) rotate(-360deg); } 55% { transform: scale(1.15) rotate(8deg); }
+        75% { transform: scale(1) rotate(0deg); } 100% { transform: scale(1); opacity: 0.9; } }
       .title-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 14px; background: #2a2c3a; }
+        gap: 11px; background: #2a2c3a; }
       .title-logo { font-size: 24px; color: #f6c860; text-shadow: 3px 3px 0 #b05a2a, 6px 6px 0 #14151c; letter-spacing: 2px; }
-      .title-sub { font-size: 8px; color: #a8acc4; line-height: 1.9; text-align: center; padding: 0 20px; }
+      .title-sub { font-size: 7px; color: #a8acc4; line-height: 1.9; text-align: center; padding: 0 16px; }
       .spinwrap { animation: spin3d 1.6s linear infinite; }
       @keyframes spin3d { from { transform: rotateY(0deg);} to { transform: rotateY(360deg);} }
       @media (prefers-reduced-motion: reduce) { .spinwrap, .continue { animation: none; } }
-      .bigbtn { font-family: inherit; font-size: 11px; padding: 14px 22px; background: #f6c860; color: #34220a;
+      .bigbtn { font-family: inherit; font-size: 10px; padding: 12px 20px; background: #f6c860; color: #34220a;
         border: 3px solid #14151c; border-radius: 8px; box-shadow: 0 4px 0 #b05a2a; cursor: pointer; }
       .bigbtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #b05a2a; }
       .bigbtn.alt { background: #a8c4e8; box-shadow: 0 4px 0 #4a6a9a; }
       .bigbtn.alt:active { box-shadow: 0 1px 0 #4a6a9a; }
-      .select-screen { flex: 1; background: #eae6d2; padding: 12px; display: flex; flex-direction: column; }
-      .select-title { font-size: 10px; color: #34362a; text-align: center; margin-bottom: 12px; }
-      .catgrid { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 8px; flex: 1; }
-      .catcard { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 8px 4px;
-        flex: 0 1 30%; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; }
+      .bigbtn.small { font-size: 8px; padding: 9px 14px; }
+      .select-screen { flex: 1; background: #eae6d2; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+      .select-title { font-size: 10px; color: #34362a; text-align: center; margin-bottom: 10px; }
+      .catgrid { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; gap: 7px; flex: 1; }
+      .catcard { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 7px 3px;
+        flex: 0 1 31%; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
       .catcard:active { background: #ece8d0; }
-      .catcard .cname { font-size: 8px; color: #22241c; }
+      .catcard .cname { font-size: 7px; color: #22241c; text-align: center; }
       .catcard .ctype { font-size: 6px; color: #8a5a2a; background: #f4e2c0; border: 1px solid #c89a5a;
         border-radius: 3px; padding: 2px 4px; }
-      .catcard .ctag { font-size: 6px; color: #8a8c74; text-align: center; line-height: 1.6; }
       .over-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 18px; background: #2a2c3a; padding: 16px; }
       .over-title { font-size: 16px; color: #f6c860; text-shadow: 2px 2px 0 #14151c; text-align: center; line-height: 1.8; }
       .cat-photo-wrap { overflow: hidden; display: inline-block; border-radius: 6px; flex-shrink: 0; }
       .cat-photo-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-      /* adventure map */
+      /* roguelike map */
       .map-screen { flex: 1; background: #eae6d2; padding: 10px 12px; display: flex; flex-direction: column; }
       .zone-banner { text-align: center; margin-bottom: 4px; }
       .zone-name { font-size: 11px; color: #34362a; }
@@ -555,7 +781,41 @@ export default function CatemonBattle() {
       .runbar .rb-info { flex: 1; }
       .runbar .rb-name { font-size: 7px; color: #22241c; }
       .runbar .rb-hp { font-size: 7px; color: #8a5a2a; margin-top: 4px; }
-      /* event / notice */
+      /* overworld */
+      .world-screen { flex: 1; display: flex; flex-direction: column; background: #22241c; }
+      .world-header { display: flex; justify-content: space-between; padding: 6px 10px; background: #14151c; }
+      .world-header span { font-size: 7px; color: #d8d4b8; }
+      .tilegrid { flex: 1; display: grid; grid-template-columns: repeat(14, 1fr); align-content: center; padding: 4px; gap: 0; }
+      .tile { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 10px;
+        position: relative; }
+      .tile .tile-emoji { font-size: 11px; line-height: 1; }
+      .world-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px;
+        background: #14151c; gap: 8px; }
+      .world-stats { font-size: 6px; color: #d8d4b8; line-height: 1.8; flex: 1; }
+      .dpad { display: grid; grid-template-columns: repeat(3, 30px); grid-template-rows: repeat(2, 30px); gap: 2px; }
+      .dpad button { font-family: inherit; font-size: 10px; background: #2e3040; color: #d8d4b8;
+        border: 2px solid #4a4d62; border-radius: 6px; cursor: pointer; padding: 0; }
+      .dpad button:active { background: #3e4055; }
+      .dpad .d-up { grid-column: 2; grid-row: 1; }
+      .dpad .d-left { grid-column: 1; grid-row: 2; }
+      .dpad .d-down { grid-column: 2; grid-row: 2; }
+      .dpad .d-right { grid-column: 3; grid-row: 2; }
+      .toast { position: absolute; bottom: 14%; left: 50%; transform: translateX(-50%); background: #14151c;
+        color: #f6c860; font-size: 7px; padding: 8px 12px; border-radius: 6px; border: 2px solid #f6c860;
+        z-index: 6; white-space: nowrap; }
+      /* center */
+      .center-screen { flex: 1; background: #d8e8e0; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .center-title { font-size: 10px; color: #2a4c3a; text-align: center; }
+      .center-coins { font-size: 8px; color: #8a5a2a; text-align: center; }
+      .shop-item { display: flex; align-items: center; gap: 8px; background: #fdfbf0; border: 3px solid #3a3c30;
+        border-radius: 6px; padding: 8px; }
+      .shop-item .si-info { flex: 1; }
+      .shop-item .si-name { font-size: 8px; color: #22241c; }
+      .shop-item .si-desc { font-size: 6px; color: #8a8c74; margin-top: 3px; }
+      .shop-item button { font-family: inherit; font-size: 7px; padding: 6px 10px; background: #f6c860;
+        border: 2px solid #14151c; border-radius: 5px; cursor: pointer; }
+      .shop-item button:disabled { opacity: 0.4; }
+      /* event / notice / confirm */
       .event-screen { flex: 1; background: #2a2c3a; padding: 18px; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 16px; }
       .event-card { background: #fdfbf0; border: 4px solid #14151c; border-radius: 10px; padding: 16px;
@@ -563,6 +823,13 @@ export default function CatemonBattle() {
       .event-title { font-size: 11px; color: #b05a2a; text-align: center; }
       .event-text { font-size: 8px; color: #22241c; line-height: 1.9; text-align: center; }
       .event-choices { display: flex; flex-direction: column; gap: 8px; }
+      .confirm-overlay { position: absolute; inset: 0; background: rgba(20,21,28,0.72); z-index: 10;
+        display: flex; align-items: center; justify-content: center; padding: 20px; }
+      .confirm-card { background: #fdfbf0; border: 4px solid #14151c; border-radius: 10px; padding: 16px;
+        width: 100%; max-width: 300px; display: flex; flex-direction: column; gap: 12px; }
+      .confirm-text { font-size: 8px; color: #22241c; line-height: 1.9; text-align: center; }
+      .confirm-btns { display: flex; gap: 8px; }
+      .confirm-btns button { flex: 1; }
     `}</style>
   );
 
@@ -573,27 +840,29 @@ export default function CatemonBattle() {
   if (screen === "title") {
     inner = (
       <div className="title-screen">
-        <div className="spinwrap"><CatPhoto id="oiia" size={80} /></div>
+        <div className="spinwrap"><CatPhoto id="oiia" size={64} /></div>
         <div className="title-logo">CATÉMON</div>
-        <div className="title-sub">MEME CAT BATTLE<br />HUH · MAXWELL · OIIA · QUASO · BANANA</div>
-        <button className="bigbtn" onClick={() => { setMode("adventure"); setScreen("select"); play("select"); }}>ADVENTURE</button>
+        <div className="title-sub">MEME CAT BATTLE</div>
+        <button className="bigbtn" onClick={() => { setMode("world"); setScreen("select"); play("select"); }}>ADVENTURE</button>
+        <button className="bigbtn alt" onClick={() => { setMode("rogue"); setScreen("select"); play("select"); }}>ROGUELIKE</button>
         <button className="bigbtn alt" onClick={() => { setMode("quick"); setScreen("select"); play("select"); }}>QUICK BATTLE</button>
-        {hasSave && <button className="bigbtn alt" onClick={continueRun}>CONTINUE</button>}
+        {saves.world && <button className="bigbtn small" onClick={continueWorld}>CONTINUE ADVENTURE</button>}
+        {saves.rogue && <button className="bigbtn small" onClick={continueRogue}>CONTINUE ROGUELIKE</button>}
       </div>
     );
   } else if (screen === "select") {
     inner = (
       <div className="select-screen">
-        <div className="select-title">{mode === "adventure" ? "CHOOSE YOUR CHAMPION" : "CHOOSE YOUR CAT"}</div>
+        <div className="select-title">{mode === "quick" ? "CHOOSE YOUR CAT" : "CHOOSE YOUR CHAMPION"}</div>
         <div className="catgrid">
           {CAT_IDS.map((id) => {
             const c = CATS[id];
+            const start = mode === "world" ? startWorld : mode === "rogue" ? startRogue : startQuickBattle;
             return (
-              <button key={id} className="catcard" onClick={() => (mode === "adventure" ? startAdventure(id) : startBattle(id))}>
-                <CatPhoto id={id} size={56} />
+              <button key={id} className="catcard" onClick={() => start(id)}>
+                <CatPhoto id={id} size={48} />
                 <span className="cname">{c.name}</span>
                 <span className="ctype">{c.type}</span>
-                <span className="ctag">{c.tagline}</span>
               </button>
             );
           })}
@@ -634,6 +903,82 @@ export default function CatemonBattle() {
         </div>
       </div>
     );
+  } else if (screen === "world") {
+    const area = AREAS[world.area];
+    const pal = area.palette;
+    const tileStyle = (t) => {
+      if (t === "#") return { background: pal.wall };
+      if (t === "g") return { background: pal.grass };
+      if (t === "C") return { background: pal.accent };
+      return { background: pal.floor };
+    };
+    inner = (
+      <div className="world-screen">
+        <div className="world-header">
+          <span>{area.name}</span>
+          <span>¢{world.coins}</span>
+        </div>
+        <div className="tilegrid">
+          {area.map.flatMap((row, y) =>
+            [...row].map((t, x) => {
+              const isPlayer = world.x === x && world.y === y;
+              const picked = world.picked.includes(`${world.area}:${x},${y}`);
+              return (
+                <div key={`${x}-${y}`} className="tile" style={tileStyle(t)}>
+                  {isPlayer ? (
+                    <CatPhoto id={world.catId} size={22} style={{ borderRadius: 3 }} />
+                  ) : t === "C" ? (
+                    <span className="tile-emoji">🏥</span>
+                  ) : t === "B" ? (
+                    <span className="tile-emoji">👑</span>
+                  ) : t === "i" && !picked ? (
+                    <span className="tile-emoji">✨</span>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+        <div className="world-footer">
+          <div className="world-stats">
+            {CATS[world.catId].name} LV.{world.level}<br />
+            HP {world.hp}/{world.maxHp} · 🍡×{world.bag.churu} 🌱×{world.bag.catnip} 🛡×{world.bag.armor}
+          </div>
+          <div className="dpad">
+            <button className="d-up" onClick={() => tryMove(0, -1)}>▲</button>
+            <button className="d-left" onClick={() => tryMove(-1, 0)}>◀</button>
+            <button className="d-down" onClick={() => tryMove(0, 1)}>▼</button>
+            <button className="d-right" onClick={() => tryMove(1, 0)}>▶</button>
+          </div>
+        </div>
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
+  } else if (screen === "center") {
+    inner = (
+      <div className="center-screen">
+        <div className="center-title">🏥 CATEMON CENTER</div>
+        <div className="center-coins">COINS: ¢{world.coins}</div>
+        <button className="movebtn" onClick={centerHeal}>
+          FREE HEAL
+          <small>Full HP + restock snacks</small>
+        </button>
+        {Object.values(ITEMS).map((item) => (
+          <div key={item.id} className="shop-item">
+            <span>{item.icon}</span>
+            <div className="si-info">
+              <div className="si-name">{item.name} — ¢{item.price}</div>
+              <div className="si-desc">{item.desc} (have ×{world.bag[item.id] ?? 0})</div>
+            </div>
+            <button disabled={world.coins < item.price} onClick={() => buyItem(item.id)}>BUY</button>
+          </div>
+        ))}
+        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("world"); play("select"); }}>
+          LEAVE
+        </button>
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
   } else if (screen === "event") {
     inner = (
       <div className="event-screen">
@@ -663,30 +1008,31 @@ export default function CatemonBattle() {
       </div>
     );
   } else if (screen === "victory") {
+    const champ = mode === "world" ? world : run;
     inner = (
       <div className="over-screen">
-        <div className="spinwrap"><CatPhoto id={run.catId} size={90} /></div>
+        <div className="spinwrap"><CatPhoto id={champ.catId} size={90} /></div>
         <div className="over-title">MEME CAT<br />CHAMPION!<br />
           <span style={{ fontSize: 9, color: "#a8acc4" }}>
-            {CATS[run.catId].name} conquered Ohio at LV.{run.level}!
+            {CATS[champ.catId].name} conquered Ohio at LV.{champ.level}!
           </span>
         </div>
-        <button className="bigbtn" onClick={() => { setRun(null); setScreen("title"); play("select"); }}>TITLE</button>
+        <button className="bigbtn" onClick={() => { setRun(null); setWorld(null); setScreen("title"); play("select"); }}>TITLE</button>
       </div>
     );
   } else if (screen === "over") {
     const won = outcome === "win";
-    const adventure = mode === "adventure";
+    const rogue = mode === "rogue";
     inner = (
       <div className="over-screen">
         <CatPhoto id={won ? playerF.base.id : enemyF.base.id} size={80} />
         <div className="over-title">
-          {won ? "YOU WIN!" : adventure ? "RUN OVER..." : "YOU LOST..."}
+          {won ? "YOU WIN!" : rogue ? "RUN OVER..." : "YOU LOST..."}
           <br />
           <span style={{ fontSize: 9, color: "#a8acc4" }}>
             {won
               ? `${playerF.name} is victorious!`
-              : adventure
+              : rogue
                 ? `Defeated in ${ZONES[run.zone].name} at LV.${run.level}.`
                 : `${enemyF.name} was too powerful.`}
           </span>
@@ -694,19 +1040,20 @@ export default function CatemonBattle() {
         <button
           className="bigbtn"
           onClick={() => {
-            if (adventure) setRun(null);
-            setScreen(adventure ? "title" : "select");
+            if (rogue) setRun(null);
+            setScreen(rogue ? "title" : "select");
             play("select");
           }}
         >
-          {adventure ? "TRY AGAIN" : "REMATCH"}
+          {rogue ? "TRY AGAIN" : "REMATCH"}
         </button>
       </div>
     );
   } else {
     // battle
     const showMoves = phase === "command";
-    const showLv = mode === "adventure";
+    const showLv = mode !== "quick";
+    const bagItems = Object.keys(world?.bag ?? {}).filter((id) => (world.bag[id] ?? 0) > 0);
     inner = (
       <>
         <div className="arena">
@@ -714,26 +1061,53 @@ export default function CatemonBattle() {
           <div className="platform plat-player" />
           <InfoBox f={enemyF} showNum={false} align="enemy" showLv={showLv} />
           <InfoBox f={playerF} showNum={true} align="player" showLv={showLv} />
-          <div className={`slot-enemy ${shake === "enemy" ? "shaking" : ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
+          <div className={`slot-enemy ${shake === "enemy" ? "shaking" : ""} ${spinning === "enemy" ? "heli-spin" : ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
             <CatPhoto id={enemyF.base.id} size={78} />
           </div>
-          <div className={`slot-player ${shake === "player" ? "shaking" : ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
+          <div className={`slot-player ${shake === "player" ? "shaking" : ""} ${spinning === "player" ? "heli-spin" : ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
             <CatPhoto id={playerF.base.id} size={100} flip />
           </div>
+          {unoCard && (
+            <div className="uno-overlay">
+              <div className="uno-card"><div className="uno-inner">⇄</div></div>
+            </div>
+          )}
+          {toast && <div className="toast">{toast}</div>}
         </div>
         <div className="textbox" onClick={!showMoves ? onAdvance : undefined} role={!showMoves ? "button" : undefined}>
           {showMoves ? (
-            <>
-              <div className="msg" style={{ marginBottom: 8 }}>What will {playerF.name} do?</div>
-              <div className="movegrid">
-                {playerF.base.moves.map((m) => (
-                  <button key={m.key} className="movebtn" onClick={() => pickMove(m)}>
-                    {m.name}
-                    <small>{m.desc}{m.fx.heal ? ` (${playerF.healsLeft} left)` : ""}</small>
-                  </button>
-                ))}
-              </div>
-            </>
+            showBag ? (
+              <>
+                <div className="msg" style={{ marginBottom: 8 }}>BAG</div>
+                <div className="movegrid">
+                  {bagItems.length ? bagItems.map((id) => (
+                    <button key={id} className="movebtn" onClick={() => useItem(id)}>
+                      {ITEMS[id].icon} {ITEMS[id].name} ×{world.bag[id]}
+                      <small>{ITEMS[id].desc}</small>
+                    </button>
+                  )) : <div className="msg" style={{ fontSize: 8 }}>The bag is empty...</div>}
+                </div>
+                <div className="battle-actions">
+                  <button className="actionbtn" onClick={() => setShowBag(false)}>◀ BACK</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="msg" style={{ marginBottom: 8 }}>What will {playerF.name} do?</div>
+                <div className="movegrid">
+                  {playerF.moves.map((m) => (
+                    <button key={m.key} className="movebtn" onClick={() => pickMove(m)}>
+                      {m.name}
+                      <small>{m.desc}{m.fx.heal && !m.item ? ` (${playerF.healsLeft} left)` : ""}</small>
+                    </button>
+                  ))}
+                </div>
+                <div className="battle-actions">
+                  {mode === "world" && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
+                  {mode !== "quick" && <button className="actionbtn" onClick={fleeBattle}>🏃 RUN</button>}
+                </div>
+              </>
+            )
           ) : (
             <>
               <div className="msg">{current?.text}</div>
@@ -750,10 +1124,24 @@ export default function CatemonBattle() {
       {css}
       <div className="cb-shell">
         <div className="cb-shell-top">
-          <span className="cb-brand">CATÉMON v2.0</span>
+          <span className="cb-brand">CATÉMON v3.0</span>
+          {screen !== "title" && <button className="cb-menu" onClick={menuButton}>MENU</button>}
           <button className="cb-mute" onClick={() => setMuted((m) => !m)}>{muted ? "SOUND: OFF" : "SOUND: ON"}</button>
         </div>
-        <div className="screen">{inner}</div>
+        <div className="screen">
+          {inner}
+          {confirm && (
+            <div className="confirm-overlay">
+              <div className="confirm-card">
+                <div className="confirm-text">{confirm.text}</div>
+                <div className="confirm-btns">
+                  <button className="bigbtn small" onClick={() => { const y = confirm.onYes; setConfirm(null); y(); }}>YES</button>
+                  <button className="bigbtn small alt" onClick={() => { setConfirm(null); play("select"); }}>NO</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

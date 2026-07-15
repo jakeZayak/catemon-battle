@@ -16,7 +16,7 @@ function calcDamage(attacker, defender, power, rng) {
   return { dmg: Math.max(1, Math.round(dmg)), crit };
 }
 
-/* opts: { level, bonuses: {hp,atk,def,spd}, hp, healsLeft, name } — all optional.
+/* opts: { level, bonuses: {hp,atk,def,spd}, hp, healsLeft, name, extraMoves } — all optional.
    Quick Battle passes nothing and gets a plain level-1 fighter. */
 export function newFighter(catId, opts = {}) {
   const base = CATS[catId];
@@ -34,11 +34,13 @@ export function newFighter(catId, opts = {}) {
     level,
     stats,
     name: opts.name ?? base.name,
+    moves: [...base.moves, ...(opts.extraMoves ?? [])],
     hp: Math.min(opts.hp ?? stats.hp, stats.hp),
     maxHp: stats.hp,
     atkStage: 0,
     defStage: 0,
     confusedTurns: 0,
+    reflect: false,
     healsLeft: opts.healsLeft ?? 2,
   };
 }
@@ -50,29 +52,50 @@ function useMove(state, userKey, foeKey, move, rng) {
     enemy: { ...state.enemy },
   });
   const user = () => state[userKey];
-  const foe = () => state[foeKey];
 
-  if (user().confusedTurns > 0) {
+  // Items never fumble to confusion — kinder for younger players
+  if (user().confusedTurns > 0 && !move.item) {
     state[userKey] = { ...user(), confusedTurns: user().confusedTurns - 1 };
     if (state[userKey].confusedTurns === 0) {
       events.push({ text: `${user().name} snapped out of confusion!`, snapshot: snap() });
     } else {
       events.push({ text: `${user().name} is confused...`, snapshot: snap() });
-      if (rng() < 0.4) {
-        const self = Math.max(1, Math.round(8 + rng() * 8));
+      if (rng() < 0.25) {
+        const self = Math.max(1, Math.round(6 + rng() * 6));
         state[userKey] = { ...user(), hp: Math.max(0, user().hp - self) };
         events.push({ text: `It hurt itself in confusion! (${self} dmg)`, snapshot: snap(), sfx: "hit" });
-        return { events, fainted: state[userKey].hp <= 0 ? userKey : foe().hp <= 0 ? foeKey : null };
+        return { events, fainted: state[userKey].hp <= 0 ? userKey : state[foeKey].hp <= 0 ? foeKey : null };
       }
     }
   }
 
-  events.push({ text: `${user().name} used ${move.name}!`, snapshot: snap(), sfx: `cat:${user().base.id}` });
+  events.push({
+    text: move.item ? `${user().name} used a ${move.name}!` : `${user().name} used ${move.name}!`,
+    snapshot: snap(),
+    sfx: move.sound ?? (move.item ? "select" : `cat:${user().base.id}`),
+    spin: move.fx.heliSpin ? userKey : undefined,
+  });
 
   if (rng() * 100 > move.acc) {
     events.push({ text: `But it missed!`, snapshot: snap() });
     return { events, fainted: null };
   }
+
+  // UNO REVERSE: raise the shield and wait
+  if (move.fx.reverse) {
+    state[userKey] = { ...user(), reflect: true };
+    events.push({ text: `${user().name} holds up the card...`, snapshot: snap(), sfx: "status", uno: userKey });
+    return { events, fainted: null };
+  }
+
+  // If the defender has UNO REVERSE up, the move targets its own user
+  let tgt = foeKey;
+  if (state[foeKey].reflect && userKey !== foeKey) {
+    state[foeKey] = { ...state[foeKey], reflect: false };
+    events.push({ text: `UNO REVERSE! The move bounces back!`, snapshot: snap(), sfx: "status", uno: foeKey });
+    tgt = userKey;
+  }
+  const foe = () => state[tgt];
 
   if (move.power > 0) {
     const hits = move.fx.multi ? 2 + Math.floor(rng() * 3) : 1;
@@ -83,19 +106,19 @@ function useMove(state, userKey, foeKey, move, rng) {
       const { dmg, crit } = calcDamage(user(), foe(), move.power, rng);
       anyCrit = anyCrit || crit;
       total += dmg;
-      state[foeKey] = { ...foe(), hp: Math.max(0, foe().hp - dmg) };
+      state[tgt] = { ...foe(), hp: Math.max(0, foe().hp - dmg) };
     }
     if (move.fx.multi) {
-      events.push({ text: `Hit ${hits} time${hits > 1 ? "s" : ""}! (${total} dmg)`, snapshot: snap(), sfx: "hit", shake: foeKey });
+      events.push({ text: `Hit ${hits} time${hits > 1 ? "s" : ""}! (${total} dmg)`, snapshot: snap(), sfx: "hit", shake: tgt });
     } else {
       events.push({
         text: `${anyCrit ? "Critical hit! " : ""}It dealt ${total} damage!`,
         snapshot: snap(),
         sfx: "hit",
-        shake: foeKey,
+        shake: tgt,
       });
     }
-    if (move.fx.recoil && total > 0 && user().hp > 0) {
+    if (move.fx.recoil && total > 0 && user().hp > 0 && tgt !== userKey) {
       const rec = Math.max(1, Math.round(total * move.fx.recoil));
       state[userKey] = { ...user(), hp: Math.max(0, user().hp - rec) };
       events.push({ text: `${user().name} took ${rec} recoil damage!`, snapshot: snap(), sfx: "hit", shake: userKey });
@@ -107,13 +130,13 @@ function useMove(state, userKey, foeKey, move, rng) {
     if (foe().confusedTurns > 0) {
       if (fx.confuse === 1.0) events.push({ text: `${foe().name} is already confused!`, snapshot: snap() });
     } else {
-      state[foeKey] = { ...foe(), confusedTurns: 2 + Math.floor(rng() * 3) };
+      state[tgt] = { ...foe(), confusedTurns: 1 + Math.floor(rng() * 2) };
       events.push({ text: `${foe().name} became confused!`, snapshot: snap(), sfx: "status" });
     }
   }
   if (fx.foeAtkDown && foe().hp > 0 && rng() < fx.foeAtkDown) {
     if (foe().atkStage > -2) {
-      state[foeKey] = { ...foe(), atkStage: foe().atkStage - 1 };
+      state[tgt] = { ...foe(), atkStage: foe().atkStage - 1 };
       events.push({ text: `${foe().name}'s ATK fell!`, snapshot: snap(), sfx: "status" });
     }
   }
@@ -134,13 +157,17 @@ function useMove(state, userKey, foeKey, move, rng) {
     }
   }
   if (fx.heal) {
-    if (user().healsLeft <= 0) {
+    if (!move.item && user().healsLeft <= 0) {
       events.push({ text: `But there's nothing left to eat!`, snapshot: snap() });
     } else {
       const amt = Math.round(user().maxHp * fx.heal);
       const healed = Math.min(amt, user().maxHp - user().hp);
       if (healed > 0) {
-        state[userKey] = { ...user(), hp: user().hp + healed, healsLeft: user().healsLeft - 1 };
+        state[userKey] = {
+          ...user(),
+          hp: user().hp + healed,
+          healsLeft: move.item ? user().healsLeft : user().healsLeft - 1,
+        };
         events.push({ text: `${user().name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal" });
       } else {
         events.push({ text: `But its HP is already full!`, snapshot: snap() });
@@ -153,7 +180,7 @@ function useMove(state, userKey, foeKey, move, rng) {
 }
 
 function enemyPickMove(enemy, rng) {
-  const moves = enemy.base.moves;
+  const moves = enemy.moves;
   const healMove = moves.find((m) => m.fx.heal);
   if (healMove && enemy.healsLeft > 0 && enemy.hp < enemy.maxHp * 0.35 && rng() < 0.7) return healMove;
   const pool = [];
@@ -166,11 +193,22 @@ function enemyPickMove(enemy, rng) {
 }
 
 export function buildRound(playerF, enemyF, playerMove, rng) {
-  const state = { player: { ...playerF }, enemy: { ...enemyF } };
+  const state = {
+    player: { ...playerF, reflect: false },
+    enemy: { ...enemyF, reflect: false },
+  };
   const enemyMove = enemyPickMove(state.enemy, rng);
-  const pSpd = state.player.stats.spd;
-  const eSpd = state.enemy.stats.spd;
-  const playerFirst = pSpd === eSpd ? rng() < 0.5 : pSpd > eSpd;
+
+  // priority moves (UNO REVERSE) jump the speed order
+  const pPrio = !!playerMove.fx.priority;
+  const ePrio = !!enemyMove.fx.priority;
+  let playerFirst;
+  if (pPrio !== ePrio) playerFirst = pPrio;
+  else {
+    const pSpd = state.player.stats.spd;
+    const eSpd = state.enemy.stats.spd;
+    playerFirst = pSpd === eSpd ? rng() < 0.5 : pSpd > eSpd;
+  }
 
   const order = playerFirst
     ? [["player", "enemy", playerMove], ["enemy", "player", enemyMove]]
