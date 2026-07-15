@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, BOSS_MOVE } from "./cats.js";
+import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, BOSS_MOVE } from "./cats.js";
 import { newFighter, buildRound, levelMul } from "./battle.js";
 import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup } from "./world.js";
 
@@ -247,6 +247,7 @@ export default function CatemonBattle() {
   const [anim, setAnim] = useState({ player: null, enemy: null }); // sprite animation classes
   const animTimers = useRef({ player: null, enemy: null });
   const [unoCard, setUnoCard] = useState(false);
+  const [moveOverlay, setMoveOverlay] = useState(null); // { type, from } — wert's screen effects
   const [fainting, setFainting] = useState(null);
   const [showBag, setShowBag] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -301,7 +302,7 @@ export default function CatemonBattle() {
   const startQuickBattle = (catId) => {
     battleIsBoss.current = false;
     const p = newFighter(catId);
-    const others = CAT_IDS.filter((c) => c !== catId);
+    const others = ENEMY_IDS.filter((c) => c !== catId);
     const e = newFighter(others[Math.floor(Math.random() * others.length)], { statScale: 0.9 });
     beginBattle(p, e, `A wild ${e.name} appeared!`);
   };
@@ -312,6 +313,7 @@ export default function CatemonBattle() {
     setOutcome(null);
     setFainting(null);
     setAnim({ player: null, enemy: null });
+    setMoveOverlay(null);
     setShowBag(false);
     setQueue([]);
     setCurrent({ text: introText });
@@ -376,7 +378,7 @@ export default function CatemonBattle() {
     newFighter(s.catId, { level: s.level, bonuses: s.bonuses, hp: s.hp, healsLeft: s.healsLeft });
 
   const randomFoeId = (notId) => {
-    const others = CAT_IDS.filter((c) => c !== notId);
+    const others = ENEMY_IDS.filter((c) => c !== notId);
     return others[Math.floor(Math.random() * others.length)];
   };
 
@@ -638,6 +640,11 @@ export default function CatemonBattle() {
       setUnoCard(true);
       setTimeout(() => setUnoCard(false), 1000);
     }
+    if (next.overlay) {
+      setMoveOverlay({ type: next.overlay, from: next.overlayFrom });
+      const ms = next.overlay === "blackhole" ? 1800 : next.overlay === "sixseven" ? 1400 : 1000;
+      setTimeout(() => setMoveOverlay(null), ms);
+    }
     if (next.faint) setFainting(next.faint);
   };
 
@@ -758,6 +765,34 @@ export default function CatemonBattle() {
         color: #d02020; font-size: 26px; font-weight: bold; }
       @keyframes unopop { 0% { transform: scale(0) rotate(-360deg); } 55% { transform: scale(1.15) rotate(8deg); }
         75% { transform: scale(1) rotate(0deg); } 100% { transform: scale(1); opacity: 0.9; } }
+      /* wert move effects */
+      .fx-overlay { position: absolute; inset: 0; z-index: 6; pointer-events: none; overflow: hidden;
+        display: flex; align-items: center; justify-content: center; }
+      .big-num { font-size: 120px; color: #f6c860; text-shadow: 7px 7px 0 #14151c, -3px -3px 0 #b05a2a;
+        animation: numpop 0.95s ease forwards; }
+      .big-num.sixseven { font-size: 84px; color: #ff3030; text-shadow: 6px 6px 0 #14151c, 0 0 24px #ff2020; }
+      @keyframes numpop { 0% { transform: scale(0) rotate(-40deg); } 45% { transform: scale(1.5) rotate(8deg); }
+        65% { transform: scale(1) rotate(0deg); } 85% { opacity: 1; } 100% { transform: scale(1.1); opacity: 0; } }
+      .laser { position: absolute; height: 6px; width: 160%; background: linear-gradient(90deg, #ff2020, #ffb0b0, #ff2020);
+        box-shadow: 0 0 14px 4px rgba(255,32,32,0.7); animation: laserfire 1.3s ease forwards; }
+      .laser.from-player { left: 12%; bottom: 32%; transform-origin: left center; }
+      .laser.laser-a.from-player { transform: rotate(-24deg); }
+      .laser.laser-b.from-player { transform: rotate(-31deg); bottom: 29%; }
+      .laser.from-enemy { right: 12%; top: 26%; transform-origin: right center; }
+      .laser.laser-a.from-enemy { transform: rotate(-24deg); }
+      .laser.laser-b.from-enemy { transform: rotate(-31deg); top: 29%; }
+      @keyframes laserfire { 0% { opacity: 0; } 12% { opacity: 1; } 30% { opacity: 0.5; } 45% { opacity: 1; }
+        60% { opacity: 0.6; } 80% { opacity: 1; } 100% { opacity: 0; } }
+      .fx-overlay.blackhole-bg { animation: holedark 1.8s ease forwards; }
+      @keyframes holedark { 20% { background: rgba(8,2,16,0.85); } 80% { background: rgba(8,2,16,0.92); }
+        100% { background: transparent; } }
+      .blackhole { width: 60px; height: 60px; border-radius: 50%;
+        background: conic-gradient(from 0deg, #000 0%, #4a1a7a 12%, #000 28%, #7a2aaa 44%, #000 58%, #3a0a5a 74%, #000 90%, #5a1a8a 100%);
+        box-shadow: 0 0 70px 40px rgba(40,8,64,0.9), inset 0 0 30px 18px #000;
+        animation: holegrow 1.8s cubic-bezier(0.5, 0, 0.6, 1) forwards; }
+      @keyframes holegrow { 0% { transform: scale(0) rotate(0deg); }
+        55% { transform: scale(11) rotate(480deg); } 80% { transform: scale(12) rotate(720deg); }
+        100% { transform: scale(0.01) rotate(1080deg); } }
       .title-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 11px; background: #2a2c3a; }
       .title-logo { font-size: 24px; color: #f6c860; text-shadow: 3px 3px 0 #b05a2a, 6px 6px 0 #14151c; letter-spacing: 2px; }
@@ -1099,6 +1134,24 @@ export default function CatemonBattle() {
           {unoCard && (
             <div className="uno-overlay">
               <div className="uno-card"><div className="uno-inner">⇄</div></div>
+            </div>
+          )}
+          {moveOverlay?.type === "six" && (
+            <div className="fx-overlay"><span className="big-num">6</span></div>
+          )}
+          {moveOverlay?.type === "seven" && (
+            <div className="fx-overlay"><span className="big-num">7</span></div>
+          )}
+          {moveOverlay?.type === "sixseven" && (
+            <div className="fx-overlay">
+              <div className={`laser laser-a ${moveOverlay.from === "enemy" ? "from-enemy" : "from-player"}`} />
+              <div className={`laser laser-b ${moveOverlay.from === "enemy" ? "from-enemy" : "from-player"}`} />
+              <span className="big-num sixseven">6&nbsp;7</span>
+            </div>
+          )}
+          {moveOverlay?.type === "blackhole" && (
+            <div className="fx-overlay blackhole-bg">
+              <div className="blackhole" />
             </div>
           )}
           {toast && <div className="toast">{toast}</div>}

@@ -75,7 +75,9 @@ function useMove(state, userKey, foeKey, move, rng) {
     snapshot: snap(),
     sfx: move.sound ?? (move.item ? "select" : `cat:${user().base.id}`),
     spin: move.fx.heliSpin ? userKey : undefined,
-    lunge: move.power > 0 && !move.fx.heliSpin ? userKey : undefined,
+    lunge: move.power > 0 && !move.fx.heliSpin && !move.fx.overlay ? userKey : undefined,
+    overlay: move.fx.overlay,
+    overlayFrom: move.fx.overlay ? userKey : undefined,
   });
 
   if (rng() * 100 > move.acc) {

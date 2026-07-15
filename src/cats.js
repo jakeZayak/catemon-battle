@@ -12,6 +12,7 @@ export const CAT_IMAGES = {
   pedro:  asset("cat_imgs/pedro.gif"),
   zoned:  asset("cat_imgs/zoned-out-cat.gif"),
   apple:  asset("cat_imgs/apple-cat.gif"),
+  wert:   asset("cat_imgs/wert.png"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -24,6 +25,7 @@ export const CAT_CROP = {
   pedro:  "center center",
   zoned:  "center 25%",   // favor the eyes
   apple:  "center center",
+  wert:   "center 10%",   // tall portrait — frame the face and glasses
 };
 
 // oiia GIF has a solid black background — match the wrapper so it looks clean
@@ -39,6 +41,7 @@ export const CAT_SOUNDS = {
   pedro:  ["sounds/pedro-1.mp3", "sounds/pedro-2.mp3", "sounds/pedro-song.mp3"].map(asset),
   zoned:  ["sounds/zoned-out-cat-1.mp3", "sounds/zoning-out-cat.mp3"].map(asset),
   apple:  ["sounds/happy-cat-1.mp3", "sounds/happy-cat-2.mp3"].map(asset), // shares banana's clips
+  wert:   ["sounds/wert.m4a"].map(asset),
 };
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
@@ -159,6 +162,22 @@ export const CATS = {
       { key: "fury",   name: "FRUIT FURY",      power: 78, acc: 88,  desc: "Full fruit-powered slam.",           fx: {} },
     ],
   },
+  wert: {
+    id: "wert",
+    name: "WERT",
+    type: "67",
+    tagline: "six... SEVEN!!!",
+    stats: { hp: 150, atk: 99, def: 45, spd: 99 },
+    moves: [
+      { key: "face",  name: "67777545g;= IN YOUR FACE", power: 250, acc: 100, desc: "Eye lasers. Unstoppable.",       fx: { overlay: "sixseven" } },
+      { key: "six",   name: "6 SMASH",                  power: 150, acc: 100, desc: "A colossal 6 falls from above.", fx: { overlay: "six" } },
+      { key: "seven", name: "7 SMASH",                  power: 175, acc: 100, desc: "A colossal 7 falls from above.", fx: { overlay: "seven" } },
+      { key: "hole",  name: "BLACK HOLE OF DOOM",       power: 999, acc: 100, desc: "Deletes the foe from reality.",  fx: { overlay: "blackhole" } },
+    ],
+  },
 };
 
-export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple"];
+export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "wert"];
+
+/* wert is a player-only secret weapon — never spawns as an opponent */
+export const ENEMY_IDS = CAT_IDS.filter((id) => id !== "wert");
