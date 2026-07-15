@@ -101,7 +101,7 @@ const CATS = {
     moves: [
       { key: "quaso",  name: "QUASO~",       power: 0,  acc: 90,  desc: "Confuses the foe instantly.",   fx: { confuse: 1.0 } },
       { key: "peek",   name: "CORNER PEEK",  power: 48, acc: 100, desc: "Sneak attack. May lower ATK.",  fx: { foeAtkDown: 0.4 } },
-      { key: "bean",   name: "SMOL BEANS",   power: 0,  acc: 100, desc: "Restores 40% max HP.",          fx: { heal: 0.4 } },
+      { key: "bean",   name: "SMOL BEANS",   power: 0,  acc: 100, desc: "Restores 30% max HP.",          fx: { heal: 0.3 } },
       { key: "pounce", name: "POUNCE",       power: 84, acc: 85,  desc: "High-damage leap attack.",      fx: {} },
     ],
   },
@@ -115,7 +115,7 @@ const CATS = {
       { key: "suit",    name: "BANANA SUIT",   power: 0,  acc: 90,  desc: "Inexplicable banana. Confuses foe.",  fx: { confuse: 1.0 } },
       { key: "zoomies", name: "ZOOMIES",       power: 50, acc: 100, desc: "Joyful charge. 15% crash recoil.",    fx: { recoil: 0.15 } },
       { key: "happy",   name: "HAPPY HAPPY",   power: 90, acc: 72,  desc: "Pure joy at max volume. Risky aim.",  fx: {} },
-      { key: "split",   name: "BANANA SPLIT",  power: 0,  acc: 100, desc: "Eats the banana. Restores 40% HP.",   fx: { heal: 0.4 } },
+      { key: "split",   name: "BANANA SPLIT",  power: 0,  acc: 100, desc: "Eats the banana. Restores 30% HP.",   fx: { heal: 0.3 } },
     ],
   },
 };
@@ -144,6 +144,7 @@ function newFighter(catId) {
     atkStage: 0,
     defStage: 0,
     confusedTurns: 0,
+    healsLeft: 2,
   };
 }
 
@@ -238,13 +239,17 @@ function useMove(state, userKey, foeKey, move, rng) {
     }
   }
   if (fx.heal) {
-    const amt = Math.round(user().maxHp * fx.heal);
-    const healed = Math.min(amt, user().maxHp - user().hp);
-    if (healed > 0) {
-      state[userKey] = { ...user(), hp: user().hp + healed };
-      events.push({ text: `${user().base.name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal" });
+    if (user().healsLeft <= 0) {
+      events.push({ text: `But there's nothing left to eat!`, snapshot: snap() });
     } else {
-      events.push({ text: `But its HP is already full!`, snapshot: snap() });
+      const amt = Math.round(user().maxHp * fx.heal);
+      const healed = Math.min(amt, user().maxHp - user().hp);
+      if (healed > 0) {
+        state[userKey] = { ...user(), hp: user().hp + healed, healsLeft: user().healsLeft - 1 };
+        events.push({ text: `${user().base.name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal" });
+      } else {
+        events.push({ text: `But its HP is already full!`, snapshot: snap() });
+      }
     }
   }
 
@@ -255,9 +260,10 @@ function useMove(state, userKey, foeKey, move, rng) {
 function enemyPickMove(enemy, rng) {
   const moves = enemy.base.moves;
   const healMove = moves.find((m) => m.fx.heal);
-  if (healMove && enemy.hp < enemy.maxHp * 0.35 && rng() < 0.7) return healMove;
+  if (healMove && enemy.healsLeft > 0 && enemy.hp < enemy.maxHp * 0.35 && rng() < 0.7) return healMove;
   const pool = [];
   for (const m of moves) {
+    if (m.fx.heal && enemy.healsLeft <= 0) continue;
     const w = m.power > 0 ? 3 : 1;
     for (let i = 0; i < w; i++) pool.push(m);
   }
@@ -644,7 +650,7 @@ export default function CatemonBattle() {
                 {playerF.base.moves.map((m) => (
                   <button key={m.key} className="movebtn" onClick={() => pickMove(m)}>
                     {m.name}
-                    <small>{m.desc}</small>
+                    <small>{m.desc}{m.fx.heal ? ` (${playerF.healsLeft} left)` : ""}</small>
                   </button>
                 ))}
               </div>
