@@ -62,6 +62,24 @@ export const GAME_SOUNDS = {
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
 
+/* ---------- battle families (type chart) ----------
+   Single cycle: each family beats the next and is weak to the previous.
+   GOOFY → CHAOS → CLANG → GROOVE → SNACC → ZOOM → GOOFY */
+export const FAMILY_BEATS = {
+  GOOFY: "CHAOS",
+  CHAOS: "CLANG",
+  CLANG: "GROOVE",
+  GROOVE: "SNACC",
+  SNACC: "ZOOM",
+  ZOOM: "GOOFY",
+};
+
+export const FAMILY_ICONS = { GOOFY: "🤪", CHAOS: "🌀", CLANG: "🔩", GROOVE: "🕺", SNACC: "🍩", ZOOM: "💨" };
+
+/* gentle multipliers — advantages matter but never feel unfair */
+export const familyMul = (atkFam, defFam) =>
+  FAMILY_BEATS[atkFam] === defFam ? 1.4 : FAMILY_BEATS[defFam] === atkFam ? 0.75 : 1;
+
 /* Bosses get this appended to their move list (enemies only) */
 export const BOSS_MOVE = {
   key: "heli",
@@ -78,6 +96,7 @@ export const CATS = {
     id: "huh",
     name: "HUH CAT",
     type: "CONFUSION",
+    family: "GOOFY",
     tagline: "Perpetually bewildered.",
     stats: { hp: 112, atk: 22, def: 24, spd: 18 },
     moves: [
@@ -91,6 +110,7 @@ export const CATS = {
     id: "maxwell",
     name: "MAXWELL",
     type: "GROOVE",
+    family: "GROOVE",
     tagline: "He bops. Relentlessly.",
     stats: { hp: 118, atk: 24, def: 22, spd: 22 },
     moves: [
@@ -104,6 +124,7 @@ export const CATS = {
     id: "oiia",
     name: "OIIA CAT",
     type: "SPIN",
+    family: "ZOOM",
     tagline: "Rotational velocity: yes.",
     stats: { hp: 104, atk: 26, def: 19, spd: 28 },
     moves: [
@@ -117,6 +138,7 @@ export const CATS = {
     id: "quaso",
     name: "QUASO CAT",
     type: "CUTE",
+    family: "SNACC",
     tagline: "quaso~",
     stats: { hp: 122, atk: 21, def: 26, spd: 14 },
     moves: [
@@ -130,6 +152,7 @@ export const CATS = {
     id: "banana",
     name: "BANANA CAT",
     type: "HAPPY",
+    family: "GOOFY",
     tagline: "happy happy happy",
     stats: { hp: 116, atk: 23, def: 22, spd: 12 },
     moves: [
@@ -143,6 +166,7 @@ export const CATS = {
     id: "pedro",
     name: "PEDRO",
     type: "RACCOON",
+    family: "CHAOS",
     tagline: "pedro pedro pedro pe",
     stats: { hp: 108, atk: 24, def: 20, spd: 26 },
     moves: [
@@ -156,6 +180,7 @@ export const CATS = {
     id: "zoned",
     name: "ZONED OUT CAT",
     type: "VOID",
+    family: "CHAOS",
     tagline: "no thoughts. head empty.",
     stats: { hp: 120, atk: 20, def: 27, spd: 10 },
     moves: [
@@ -169,6 +194,7 @@ export const CATS = {
     id: "apple",
     name: "APPLE CAT",
     type: "FRUIT",
+    family: "SNACC",
     tagline: "crunchy lil guy",
     stats: { hp: 114, atk: 22, def: 23, spd: 16 },
     moves: [
@@ -182,6 +208,7 @@ export const CATS = {
     id: "pipe",
     name: "METAL PIPE",
     type: "CLANG",
+    family: "CLANG",
     tagline: "*deafening clang*",
     stats: { hp: 110, atk: 27, def: 25, spd: 11 },
     moves: [
@@ -195,6 +222,7 @@ export const CATS = {
     id: "stickbug",
     name: "STICK BUG",
     type: "BAMBOO",
+    family: "GROOVE",
     tagline: "he do be dancing tho",
     stats: { hp: 106, atk: 22, def: 21, spd: 27 },
     moves: [
@@ -208,6 +236,7 @@ export const CATS = {
     id: "sprite",
     name: "SPRITE CAT",
     type: "FIZZY",
+    family: "ZOOM",
     tagline: "obey your thirst",
     stats: { hp: 108, atk: 23, def: 20, spd: 25 },
     moves: [
@@ -221,6 +250,7 @@ export const CATS = {
     id: "wert",
     name: "WERT",
     type: "67",
+    family: "CLANG",
     tagline: "six... SEVEN!!!",
     stats: { hp: 150, atk: 99, def: 45, spd: 99 },
     moves: [

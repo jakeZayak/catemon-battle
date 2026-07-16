@@ -1,4 +1,4 @@
-import { CATS } from "./cats.js";
+import { CATS, familyMul } from "./cats.js";
 
 /* ---------- battle math ---------- */
 
@@ -12,8 +12,9 @@ function calcDamage(attacker, defender, power, rng) {
   const def = defender.stats.def * stageMul(defender.defStage);
   const variance = 0.85 + rng() * 0.15;
   const crit = rng() < 1 / 16;
-  let dmg = ((power * (atk / def)) / 2.1) * variance * (crit ? 1.5 : 1);
-  return { dmg: Math.max(1, Math.round(dmg)), crit };
+  const eff = familyMul(attacker.base.family, defender.base.family);
+  let dmg = ((power * (atk / def)) / 2.1) * variance * (crit ? 1.5 : 1) * eff;
+  return { dmg: Math.max(1, Math.round(dmg)), crit, eff };
 }
 
 /* opts: { level, bonuses: {hp,atk,def,spd}, hp, healsLeft, name, extraMoves, statScale } — all
@@ -107,12 +108,14 @@ function useMove(state, userKey, foeKey, move, rng) {
     const hits = move.fx.multi ? 2 + Math.floor(rng() * 3) : 1;
     let total = 0;
     let anyCrit = false;
+    let eff = 1;
     for (let i = 0; i < hits; i++) {
       if (foe().hp <= 0) break;
-      const { dmg, crit } = calcDamage(user(), foe(), move.power, rng);
-      anyCrit = anyCrit || crit;
-      total += dmg;
-      state[tgt] = { ...foe(), hp: Math.max(0, foe().hp - dmg) };
+      const res = calcDamage(user(), foe(), move.power, rng);
+      anyCrit = anyCrit || res.crit;
+      eff = res.eff;
+      total += res.dmg;
+      state[tgt] = { ...foe(), hp: Math.max(0, foe().hp - res.dmg) };
     }
     if (move.fx.multi) {
       events.push({ text: `Hit ${hits} time${hits > 1 ? "s" : ""}! (${total} dmg)`, snapshot: snap(), sfx: "hit", shake: tgt });
@@ -124,6 +127,8 @@ function useMove(state, userKey, foeKey, move, rng) {
         shake: tgt,
       });
     }
+    if (eff > 1) events.push({ text: `It's super effective!`, snapshot: snap(), sfx: "buff" });
+    else if (eff < 1) events.push({ text: `It's not very effective...`, snapshot: snap() });
     if (move.fx.recoil && total > 0 && user().hp > 0 && tgt !== userKey) {
       const rec = Math.max(1, Math.round(total * move.fx.recoil));
       state[userKey] = { ...user(), hp: Math.max(0, user().hp - rec) };

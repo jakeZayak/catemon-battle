@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE } from "./cats.js";
+import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS } from "./cats.js";
 import { newFighter, buildRound, levelMul } from "./battle.js";
 import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses } from "./world.js";
 
@@ -227,7 +227,7 @@ function InfoBox({ f, showNum, align, showLv }) {
     <div className={`infobox ${align}`}>
       <div className="infobox-top">
         <span className="fighter-name">{f.name}</span>
-        {showLv && <span className="fighter-lv">L{f.level}</span>}
+        <span className="fighter-lv">{FAMILY_ICONS[f.base.family]}{showLv ? ` L${f.level}` : ""}</span>
       </div>
       <HpBar hp={f.hp} maxHp={f.maxHp} />
       {showNum && <div className="hp-num">{f.hp}/{f.maxHp}</div>}
@@ -269,6 +269,7 @@ export default function CatemonBattle() {
     const pool = ENEMY_IDS.filter((id) => id !== "oiia");
     return pool[Math.floor(Math.random() * pool.length)];
   });
+  const [showChart, setShowChart] = useState(false);
   const battleIsBoss = useRef(false);
   const toastTimer = useRef(null);
   const swipeStart = useRef(null);
@@ -1003,11 +1004,29 @@ export default function CatemonBattle() {
               <button key={id} className="catcard" onClick={() => start(id)}>
                 <CatPhoto id={id} size={48} />
                 <span className="cname">{c.name}</span>
-                <span className="ctype">{c.type}</span>
+                <span className="ctype">{FAMILY_ICONS[c.family]}{c.family} · {c.type}</span>
               </button>
             );
           })}
         </div>
+        <button className="bigbtn small" onClick={() => { setShowChart(true); play("select"); }}>📊 TYPE CHART</button>
+        {showChart && (
+          <div className="confirm-overlay" onClick={() => setShowChart(false)}>
+            <div className="confirm-card">
+              <div className="confirm-text" style={{ textAlign: "left", lineHeight: 2.4 }}>
+                {Object.entries(FAMILY_BEATS).map(([fam, beats]) => (
+                  <div key={fam}>
+                    {FAMILY_ICONS[fam]} {fam} <span style={{ color: "#8a5a2a" }}>beats</span> {FAMILY_ICONS[beats]} {beats}
+                  </div>
+                ))}
+                <div style={{ color: "#8a8c74", fontSize: 7, marginTop: 6 }}>
+                  Strong hits deal 1.4x damage. Weak hits deal 0.75x.
+                </div>
+              </div>
+              <button className="bigbtn small" onClick={() => setShowChart(false)}>GOT IT</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   } else if (screen === "map") {
