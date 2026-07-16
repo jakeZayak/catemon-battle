@@ -15,6 +15,7 @@ export const CAT_IMAGES = {
   wert:   asset("cat_imgs/wert.png"),
   pipe:   asset("cat_imgs/pipe.webp"),
   stickbug: asset("cat_imgs/stick-bug.gif"),
+  sprite: asset("cat_imgs/sprite-cat.jpg"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -30,6 +31,7 @@ export const CAT_CROP = {
   wert:   "center 10%",   // tall portrait — frame the face and glasses
   pipe:   "center center",
   stickbug: "center 35%", // frame the bug on the ledge
+  sprite: "center center",
 };
 
 // oiia GIF has a solid black background — match the wrapper so it looks clean
@@ -48,6 +50,14 @@ export const CAT_SOUNDS = {
   wert:   ["sounds/wert.m4a"].map(asset),
   pipe:   ["sounds/metal-pipe-clang.mp3"].map(asset),
   stickbug: ["sounds/stickbug.mp3"].map(asset),
+  sprite: ["sounds/sprite-cat-1.mp3"].map(asset),
+};
+
+/* one-off game sounds */
+export const GAME_SOUNDS = {
+  airhorn: asset("sounds/airhorn.mp3"),
+  eating:  asset("sounds/eating.mp3"),
+  lose:    ["sounds/oof.mp3", "sounds/defeat.mp3"].map(asset),
 };
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
@@ -194,6 +204,19 @@ export const CATS = {
       { key: "bamboo",    name: "BAMBOO SLAM",    power: 78, acc: 88,  desc: "Full-branch body slam.",                fx: {} },
     ],
   },
+  sprite: {
+    id: "sprite",
+    name: "SPRITE CAT",
+    type: "FIZZY",
+    tagline: "obey your thirst",
+    stats: { hp: 108, atk: 23, def: 20, spd: 25 },
+    moves: [
+      { key: "rush",   name: "CAFFEINE RUSH", power: 0,  acc: 100, desc: "Zero sugar, all zoom. Raises SPD.",  fx: { spdUp: 1.0 } },
+      { key: "fizz",   name: "FIZZ BLAST",    power: 50, acc: 100, desc: "Carbonated spray. May confuse.",     fx: { confuse: 0.3 } },
+      { key: "crush",  name: "CAN CRUSH",     power: 78, acc: 88,  desc: "Crushes it. The foe, specifically.", fx: {} },
+      { key: "lemon",  name: "LEMON-LIME",    power: 0,  acc: 100, desc: "Refreshing sip. Restores 30% HP.",   fx: { heal: 0.3 } },
+    ],
+  },
   wert: {
     id: "wert",
     name: "WERT",
@@ -209,7 +232,7 @@ export const CATS = {
   },
 };
 
-export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "wert"];
+export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "sprite", "wert"];
 
 /* wert is a player-only secret weapon — never spawns as an opponent */
 export const ENEMY_IDS = CAT_IDS.filter((id) => id !== "wert");

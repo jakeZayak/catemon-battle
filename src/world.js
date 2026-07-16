@@ -130,12 +130,12 @@ export const worldBossLevel = (area) => 4 + area * 2;
 /* ---------- consumables (used from the BAG in battle) ---------- */
 
 export const ITEMS = {
-  churu:     { id: "churu",     name: "CHURU",       icon: "🍡", desc: "Restores 50% HP",           price: 10, fx: { heal: 0.5 } },
-  tunacake:  { id: "tunacake",  name: "TUNA CAKE",   icon: "🍰", desc: "Restores ALL HP",           price: 25, fx: { heal: 1.0 } },
+  churu:     { id: "churu",     name: "CHURU",       icon: "🍡", desc: "Restores 50% HP",           price: 10, fx: { heal: 0.5 }, food: true },
+  tunacake:  { id: "tunacake",  name: "TUNA CAKE",   icon: "🍰", desc: "Restores ALL HP",           price: 25, fx: { heal: 1.0 }, food: true },
   snapspray: { id: "snapspray", name: "SNAP SPRAY",  icon: "💦", desc: "Cures confusion, +20% HP",  price: 12, fx: { cureConfuse: true, heal: 0.2 } },
-  catnip:    { id: "catnip",    name: "CATNIP",      icon: "🌱", desc: "Raises ATK",                price: 15, fx: { atkUp: 1.0 } },
+  catnip:    { id: "catnip",    name: "CATNIP",      icon: "🌱", desc: "Raises ATK",                price: 15, fx: { atkUp: 1.0 }, food: true },
   armor:     { id: "armor",     name: "THICC ARMOR", icon: "🛡️", desc: "Raises DEF",                price: 15, fx: { defUp: 1.0 } },
-  zoomjuice: { id: "zoomjuice", name: "ZOOM JUICE",  icon: "🧃", desc: "Raises SPD",                price: 15, fx: { spdUp: 1.0 } },
+  zoomjuice: { id: "zoomjuice", name: "ZOOM JUICE",  icon: "🧃", desc: "Raises SPD",                price: 15, fx: { spdUp: 1.0 }, food: true },
 };
 
 export const ITEM_IDS = Object.keys(ITEMS);
@@ -148,6 +148,7 @@ export const itemToMove = (id) => ({
   power: 0,
   acc: 100,
   fx: { ...ITEMS[id].fx, priority: true },
+  sound: ITEMS[id].food ? "eating" : "select",
 });
 
 /* ---------- equipment (passive stat boosts, collar + charm slots) ---------- */

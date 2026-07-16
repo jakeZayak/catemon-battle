@@ -244,7 +244,7 @@ export function buildRound(playerF, enemyF, playerMove, rng) {
       events.push({
         text: `${faintedF.name} fainted!`,
         snapshot: { player: { ...state.player }, enemy: { ...state.enemy } },
-        sfx: "faint",
+        sfx: res.fainted === "player" ? "lose" : "faint",
         faint: res.fainted,
       });
       outcome = res.fainted === "enemy" ? "win" : "lose";

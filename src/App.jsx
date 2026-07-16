@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, BOSS_MOVE } from "./cats.js";
+import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE } from "./cats.js";
 import { newFighter, buildRound, levelMul } from "./battle.js";
 import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses } from "./world.js";
 
@@ -140,6 +140,9 @@ function useSfx() {
     };
 
     if (kind === "helicopter") { playFile(HELICOPTER_SOUND); return; }
+    if (kind === "airhorn") { playFile(GAME_SOUNDS.airhorn); return; }
+    if (kind === "eating") { playFile(GAME_SOUNDS.eating); return; }
+    if (kind === "lose") { playFile(GAME_SOUNDS.lose[Math.floor(Math.random() * GAME_SOUNDS.lose.length)]); return; }
 
     // Cat move sounds — random clip from the cat's pool
     if (kind.startsWith("cat:")) {
@@ -256,6 +259,11 @@ export default function CatemonBattle() {
     rogue: !!localStorage.getItem(ROGUE_SAVE),
     world: !!localStorage.getItem(WORLD_SAVE),
   }));
+  // title mascot: random cat per visit (skip oiia — its big GIF can fail to load)
+  const [titleCat] = useState(() => {
+    const pool = ENEMY_IDS.filter((id) => id !== "oiia");
+    return pool[Math.floor(Math.random() * pool.length)];
+  });
   const battleIsBoss = useRef(false);
   const toastTimer = useRef(null);
   const swipeStart = useRef(null);
@@ -320,7 +328,7 @@ export default function CatemonBattle() {
     setCurrent({ text: introText });
     setPhase("intro");
     setScreen("battle");
-    play("start");
+    play("airhorn");
   };
 
   /* ---------- roguelike ---------- */
@@ -952,7 +960,7 @@ export default function CatemonBattle() {
   if (screen === "title") {
     inner = (
       <div className="title-screen">
-        <div className="spinwrap"><CatPhoto id="oiia" size={64} /></div>
+        <div className="spinwrap"><CatPhoto id={titleCat} size={64} /></div>
         <div className="title-logo">CATÉMON</div>
         <div className="title-sub">MEME CAT BATTLE</div>
         <button className="bigbtn" onClick={() => { setMode("world"); setScreen("select"); play("select"); }}>ADVENTURE</button>
