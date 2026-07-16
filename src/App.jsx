@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS } from "./cats.js";
 import { newFighter, buildRound, enemyFreeRound, levelMul } from "./battle.js";
-import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses } from "./world.js";
+import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses, NPCS, TRAINERS } from "./world.js";
 
 /* ============================================================
    CATÉMON — meme cat battle & adventure
@@ -349,8 +349,12 @@ export default function CatemonBattle() {
     return pool[Math.floor(Math.random() * pool.length)];
   });
   const [showChart, setShowChart] = useState(false);
+  const [npcDialog, setNpcDialog] = useState(null);
+  const [tower, setTower] = useState(null); // { catId, level, hp, maxHp, healsLeft, floor }
   const battleIsBoss = useRef(false);
   const encounterPending = useRef(false);
+  const trainerRef = useRef(null);     // active trainer during a trainer battle
+  const enemyBenchRef = useRef([]);    // trainer's remaining cats
   const toastTimer = useRef(null);
   const swipeStart = useRef(null);
   const { play, mutedRef, catAudioRef, startMusic, stopMusic } = useSfx();
@@ -426,6 +430,8 @@ export default function CatemonBattle() {
 
   const beginBattle = (p, e, introText) => {
     encounterPending.current = false;
+    trainerRef.current = null;
+    enemyBenchRef.current = [];
     setPlayerF(p);
     setEnemyF(e);
     setOutcome(null);
@@ -592,7 +598,7 @@ export default function CatemonBattle() {
       area: 0, x: spawn.x, y: spawn.y,
       coins: 15, bag: { churu: 1 }, picked: [],
       gear: { owned: [], collar: null, charm: null },
-      bench: [],
+      bench: [], quests: {}, beaten: [],
     });
     setScreen("world");
     play("start");
@@ -602,9 +608,11 @@ export default function CatemonBattle() {
     try {
       const saved = JSON.parse(localStorage.getItem(WORLD_SAVE));
       if (saved?.catId && saved?.bag) {
-        // migrate pre-equipment / pre-team saves
+        // migrate pre-equipment / pre-team / pre-quest saves
         saved.gear ??= { owned: [], collar: null, charm: null };
         saved.bench ??= [];
+        saved.quests ??= {};
+        saved.beaten ??= [];
         setWorld(saved);
         setMode("world");
         setScreen("world");
@@ -626,8 +634,19 @@ export default function CatemonBattle() {
     beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
   };
 
+  const startTrainerBattle = (tr) => {
+    battleIsBoss.current = true; // trainers allow no fleeing or befriending
+    const p = playerFighterFrom(world);
+    const fighters = tr.team.map((m) => newFighter(m.catId, { level: m.level, statScale: 0.95 }));
+    beginBattle(p, fighters[0], `${tr.emoji} ${tr.name}: "${tr.intro}"`);
+    trainerRef.current = tr;
+    enemyBenchRef.current = fighters.slice(1);
+  };
+
   const finishWorldBattle = (won, finalPlayer) => {
     if (!won) {
+      trainerRef.current = null;
+      enemyBenchRef.current = [];
       // friendly: no game over in the overworld — wake up at the area start
       const spawn = findTile(AREAS[world.area].map, "S");
       setWorld({
@@ -635,6 +654,15 @@ export default function CatemonBattle() {
         bench: (world.bench ?? []).map((m) => ({ ...m, hp: memberMaxHp(m), healsLeft: 2 })),
       });
       showNotice("You blacked out... and woke up back at the start, fully rested!", "world");
+      return;
+    }
+    if (trainerRef.current) {
+      const tr = trainerRef.current;
+      trainerRef.current = null;
+      let w = levelUpState(world, finalPlayer);
+      w = { ...w, coins: w.coins + tr.reward, beaten: [...(w.beaten ?? []), tr.id] };
+      setWorld(w);
+      showNotice(`${tr.name}: "${tr.quote}" Won ¢${tr.reward}! ${CATS[world.catId].name} grew to LV.${w.level}!`, "world");
       return;
     }
     let w = levelUpState(world, finalPlayer);
@@ -645,6 +673,7 @@ export default function CatemonBattle() {
       if (world.area === AREAS.length - 1) {
         clearSave(WORLD_SAVE);
         setWorld(w);
+        setMeta((m) => (m.towerUnlocked ? m : { ...m, towerUnlocked: true }));
         setScreen("victory");
         return;
       }
@@ -666,8 +695,67 @@ export default function CatemonBattle() {
     }
   };
 
+  const completeQuest = () => {
+    const q = npcDialog.quest;
+    play("coin");
+    setWorld({
+      ...world,
+      bag: { ...world.bag, [q.item]: (world.bag[q.item] ?? 0) - q.count },
+      coins: world.coins + q.reward,
+      quests: { ...(world.quests ?? {}), [npcDialog.id]: true },
+    });
+    showToast(`Quest complete! +¢${q.reward}`);
+    setNpcDialog(null);
+  };
+
+  /* ---------- endless tower (post-game) ---------- */
+
+  const startTower = (catId) => {
+    const f = newFighter(catId, { level: 12 });
+    setTower({ catId, level: 12, hp: f.maxHp, maxHp: f.maxHp, healsLeft: 3, floor: 1 });
+    setScreen("tower");
+    play("start");
+  };
+
+  const startTowerBattle = () => {
+    battleIsBoss.current = true;
+    const p = newFighter(tower.catId, { level: tower.level, hp: tower.hp, healsLeft: tower.healsLeft });
+    const wildId = randomFoeId(tower.catId);
+    const e = newFighter(wildId, {
+      level: 10 + tower.floor * 2,
+      name: `OHIO ${CATS[wildId].name}`,
+      extraMoves: [BOSS_MOVE],
+      statScale: 0.95,
+    });
+    beginBattle(p, e, `FLOOR ${tower.floor}: ${e.name} blocks the stairs!`);
+  };
+
+  const finishTowerBattle = (won, finalPlayer) => {
+    if (!won) {
+      setMeta((m) => ({ ...m, towerBest: Math.max(m.towerBest ?? 0, tower.floor - 1) }));
+      setScreen("over");
+      return;
+    }
+    const lvl = tower.level + 1;
+    const newMax = Math.round(CATS[tower.catId].stats.hp * levelMul(lvl));
+    const gain = newMax - tower.maxHp;
+    let t = {
+      ...tower, level: lvl, maxHp: newMax, floor: tower.floor + 1,
+      hp: Math.min(newMax, finalPlayer.hp + gain),
+      healsLeft: finalPlayer.healsLeft,
+    };
+    let text = `FLOOR ${tower.floor} CLEARED!`;
+    if (tower.floor % 3 === 0) {
+      t = { ...t, hp: t.maxHp, healsLeft: 3 };
+      text += " A kind Ohio grandma patches you up!";
+    }
+    setTower(t);
+    setMeta((m) => ({ ...m, towerBest: Math.max(m.towerBest ?? 0, tower.floor) }));
+    showNotice(text, "tower");
+  };
+
   const tryMove = useCallback((dx, dy) => {
-    if (screen !== "world" || confirm) return;
+    if (screen !== "world" || confirm || npcDialog) return;
     setWorld((w) => {
       if (!w) return w;
       const map = AREAS[w.area].map;
@@ -675,6 +763,26 @@ export default function CatemonBattle() {
       const ny = w.y + dy;
       const t = tileAt(map, nx, ny);
       if (t === "#") return w;
+
+      // NPCs and trainers occupy their tile — bumping into them interacts
+      const npc = (NPCS[w.area] ?? []).find((n) => n.x === nx && n.y === ny);
+      if (npc) {
+        setTimeout(() => setNpcDialog(npc), 60);
+        return w;
+      }
+      const tr = (TRAINERS[w.area] ?? []).find((n) => n.x === nx && n.y === ny);
+      if (tr) {
+        if ((w.beaten ?? []).includes(tr.id)) {
+          showToast(`${tr.name}: "${tr.quote}"`);
+          return w;
+        }
+        if (!encounterPending.current) {
+          encounterPending.current = true;
+          setTimeout(() => startTrainerBattle(tr), 120);
+        }
+        return w;
+      }
+
       play("step");
       let next = { ...w, x: nx, y: ny };
 
@@ -715,7 +823,7 @@ export default function CatemonBattle() {
       }
       return next;
     });
-  }, [screen, confirm, play]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, confirm, npcDialog, play]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* keyboard: overworld movement + battle advance */
   useEffect(() => {
@@ -887,6 +995,21 @@ export default function CatemonBattle() {
       if (oc) {
         if (oc === "caught") { setScreen("world"); return; }
         const won = oc === "win";
+        // trainers send out their next cat before the battle can end
+        if (won && enemyBenchRef.current.length) {
+          const nextE = enemyBenchRef.current.shift();
+          markDex(nextE.base.id, "seen");
+          setEnemyF(nextE);
+          setFainting(null);
+          const ev = {
+            text: `${trainerRef.current?.name ?? "The trainer"} sent out ${nextE.name}!`,
+            snapshot: { player: playerF, enemy: nextE },
+            sfx: "select",
+          };
+          setOutcome(null); setQueue([ev]); setCurrent(null); setPhase("playing");
+          advanceWith([ev], null);
+          return;
+        }
         if (won) play("victory");
         // a fainted cat isn't the end while teammates can still fight
         if (!won && mode === "world" && (world?.bench ?? []).some((m) => m.hp > 0)) {
@@ -896,6 +1019,7 @@ export default function CatemonBattle() {
         }
         if (mode === "rogue") finishRogueBattle(won, playerF);
         else if (mode === "world") finishWorldBattle(won, playerF);
+        else if (mode === "tower") finishTowerBattle(won, playerF);
         else setScreen("over");
       } else {
         setPhase("command");
@@ -974,7 +1098,7 @@ export default function CatemonBattle() {
   };
 
   const menuButton = () => {
-    const saved = mode === "quick" ? "" : " Your progress is saved.";
+    const saved = mode === "quick" ? "" : mode === "tower" ? " Tower progress is NOT saved!" : " Your progress is saved.";
     setConfirm({
       text: `Return to the title screen?${saved}`,
       onYes: () => {
@@ -1220,6 +1344,11 @@ export default function CatemonBattle() {
         <button className="bigbtn" onClick={() => { setMode("world"); setScreen("select"); play("select"); }}>ADVENTURE</button>
         <button className="bigbtn alt" onClick={() => { setMode("rogue"); setScreen("select"); play("select"); }}>ROGUELIKE</button>
         <button className="bigbtn alt" onClick={() => { setMode("quick"); setScreen("select"); play("select"); }}>QUICK BATTLE</button>
+        {meta.towerUnlocked && (
+          <button className="bigbtn alt" onClick={() => { setMode("tower"); setScreen("select"); play("select"); }}>
+            🗼 ENDLESS OHIO{meta.towerBest ? ` · BEST ${meta.towerBest}` : ""}
+          </button>
+        )}
         {saves.world && <button className="bigbtn small" onClick={continueWorld}>CONTINUE ADVENTURE</button>}
         {saves.rogue && <button className="bigbtn small" onClick={continueRogue}>CONTINUE ROGUELIKE</button>}
         <button className="bigbtn small" onClick={() => { setScreen("dex"); play("select"); }}>
@@ -1258,7 +1387,7 @@ export default function CatemonBattle() {
         <div className="catgrid">
           {CAT_IDS.map((id) => {
             const c = CATS[id];
-            const start = mode === "world" ? startWorld : mode === "rogue" ? startRogue : startQuickBattle;
+            const start = mode === "world" ? startWorld : mode === "rogue" ? startRogue : mode === "tower" ? startTower : startQuickBattle;
             return (
               <button key={id} className="catcard" onClick={() => start(id)}>
                 <CatPhoto id={id} size={48} />
@@ -1286,6 +1415,31 @@ export default function CatemonBattle() {
             </div>
           </div>
         )}
+      </div>
+    );
+  } else if (screen === "tower") {
+    inner = (
+      <div className="map-screen">
+        <div className="zone-banner">
+          <div className="zone-name">🗼 ENDLESS OHIO · FLOOR {tower.floor}</div>
+          <div className="zone-flavor">Best: floor {meta.towerBest ?? 0} · Grandma heals every 3 floors</div>
+        </div>
+        <div className="map-floors" style={{ alignItems: "center" }}>
+          <div className="spinwrap"><CatPhoto id={tower.catId} size={72} /></div>
+        </div>
+        <div className="runbar">
+          <CatPhoto id={tower.catId} size={34} />
+          <div className="rb-info">
+            <div className="rb-name">{CATS[tower.catId].name} · LV.{tower.level}</div>
+            <div className="rb-hp">HP {tower.hp}/{tower.maxHp} · SNACKS ×{tower.healsLeft}</div>
+          </div>
+        </div>
+        <button className="bigbtn" style={{ marginTop: 8 }} onClick={() => { play("select"); startTowerBattle(); }}>
+          ⚔️ CLIMB TO FLOOR {tower.floor}
+        </button>
+        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setTower(null); setScreen("title"); play("select"); }}>
+          RETIRE
+        </button>
       </div>
     );
   } else if (screen === "map") {
@@ -1359,10 +1513,16 @@ export default function CatemonBattle() {
             [...row].map((t, x) => {
               const isPlayer = world.x === x && world.y === y;
               const picked = world.picked.includes(`${world.area}:${x},${y}`);
+              const npcHere = (NPCS[world.area] ?? []).find((n) => n.x === x && n.y === y);
+              const trHere = (TRAINERS[world.area] ?? []).find((n) => n.x === x && n.y === y);
               return (
                 <div key={`${x}-${y}`} className="tile" style={tileStyle(t)}>
                   {isPlayer ? (
                     <CatPhoto id={world.catId} size={22} style={{ borderRadius: 3 }} />
+                  ) : npcHere ? (
+                    <span className="tile-emoji">{npcHere.emoji}</span>
+                  ) : trHere ? (
+                    <span className="tile-emoji" style={(world.beaten ?? []).includes(trHere.id) ? { opacity: 0.45 } : undefined}>{trHere.emoji}</span>
                   ) : t === "C" ? (
                     <span className="tile-emoji">🏥</span>
                   ) : t === "B" ? (
@@ -1384,6 +1544,36 @@ export default function CatemonBattle() {
           <div className="world-hint">SWIPE OR<br />ARROWS<br />TO MOVE</div>
         </div>
         {toast && <div className="toast">{toast}</div>}
+        {npcDialog && (() => {
+          const q = npcDialog.quest;
+          const qdone = (world.quests ?? {})[npcDialog.id];
+          const have = q ? world.bag[q.item] ?? 0 : 0;
+          const canGive = q && !qdone && have >= q.count;
+          const text = !q
+            ? npcDialog.hello
+            : qdone
+              ? q.thanks
+              : `${npcDialog.hello} ${q.ask} (${ITEMS[q.item].icon} ${have}/${q.count})`;
+          return (
+            <div className="confirm-overlay">
+              <div className="confirm-card">
+                <div className="confirm-text">
+                  {npcDialog.emoji} {npcDialog.name}
+                  <br /><br />
+                  {canGive ? q.done : text}
+                </div>
+                <div className="confirm-btns">
+                  {canGive && (
+                    <button className="bigbtn small" onClick={completeQuest}>
+                      GIVE {q.count} {ITEMS[q.item].icon}
+                    </button>
+                  )}
+                  <button className="bigbtn small" onClick={() => { setNpcDialog(null); play("select"); }}>BYE</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   } else if (screen === "center") {
@@ -1509,25 +1699,28 @@ export default function CatemonBattle() {
       <div className="over-screen">
         <CatPhoto id={won ? playerF.base.id : enemyF.base.id} size={80} />
         <div className="over-title">
-          {won ? "YOU WIN!" : rogue ? "RUN OVER..." : "YOU LOST..."}
+          {won ? "YOU WIN!" : rogue ? "RUN OVER..." : mode === "tower" ? "THE TOWER WINS..." : "YOU LOST..."}
           <br />
           <span style={{ fontSize: 9, color: "#a8acc4" }}>
             {won
               ? `${playerF.name} is victorious!`
               : rogue
                 ? `Defeated in ${ZONES[run.zone].name} at LV.${run.level}.`
-                : `${enemyF.name} was too powerful.`}
+                : mode === "tower"
+                  ? `${CATS[tower.catId].name} cleared ${tower.floor - 1} floor${tower.floor - 1 === 1 ? "" : "s"} of ENDLESS OHIO!`
+                  : `${enemyF.name} was too powerful.`}
           </span>
         </div>
         <button
           className="bigbtn"
           onClick={() => {
             if (rogue) setRun(null);
-            setScreen(rogue ? "title" : "select");
+            if (mode === "tower") setTower(null);
+            setScreen(rogue || mode === "tower" ? "title" : "select");
             play("select");
           }}
         >
-          {rogue ? "TRY AGAIN" : "REMATCH"}
+          {rogue || mode === "tower" ? "TRY AGAIN" : "REMATCH"}
         </button>
       </div>
     );
@@ -1626,10 +1819,10 @@ export default function CatemonBattle() {
                   ))}
                 </div>
                 <div className="battle-actions">
-                  {mode !== "quick" && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
+                  {(mode === "world" || mode === "rogue") && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
                   {bench.length > 0 && <button className="actionbtn" onClick={() => { setShowBag(false); setShowCats(true); }}>👥 CATS</button>}
                   {canBefriend && <button className="actionbtn" onClick={tryBefriend}>💖 BEFRIEND</button>}
-                  {mode !== "quick" && <button className="actionbtn" onClick={fleeBattle}>🏃 RUN</button>}
+                  {(mode === "world" || mode === "rogue") && <button className="actionbtn" onClick={fleeBattle}>🏃 RUN</button>}
                 </div>
               </>
             )

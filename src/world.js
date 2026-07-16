@@ -176,6 +176,68 @@ export function gearBonuses(gear) {
   return total;
 }
 
+/* ---------- NPCs: dialog + fetch quests (keyed by area index) ---------- */
+
+export const NPCS = {
+  0: [{
+    id: "chef", x: 11, y: 4, emoji: "👨‍🍳", name: "CHEF MITTENS",
+    hello: "The kitchen is overrun with wild memes! A chef can't work like this!",
+    quest: {
+      item: "churu", count: 2,
+      ask: "Bring me 2 CHURUS and I'll make it worth your while.",
+      done: "Magnifique! As promised — take these coins!",
+      thanks: "My churu bisque is legendary now. Merci!",
+      reward: 40,
+    },
+  }],
+  1: [{
+    id: "potato", x: 7, y: 3, emoji: "🛋️", name: "COUCH POTATO",
+    hello: "I've been on this couch since the dial-up days.",
+    quest: {
+      item: "tunacake", count: 1,
+      ask: "Bring me a TUNA CAKE. Walking is not an option.",
+      done: "You're a hero. The couch thanks you.",
+      thanks: "Crumbs everywhere. Worth it.",
+      reward: 50,
+    },
+  }],
+  3: [{
+    id: "gardener", x: 11, y: 2, emoji: "🧑‍🌾", name: "GRANNY WHISKERS",
+    hello: "Those cucumbers keep scaring my cats!",
+    quest: {
+      item: "catnip", count: 2,
+      ask: "Fetch me 2 CATNIP for my anti-cucumber potion, dearie.",
+      done: "Bless you! Here's my rainy-day coin jar.",
+      thanks: "The garden is at peace. For now.",
+      reward: 60,
+    },
+  }],
+  5: [{
+    id: "mooncat", x: 3, y: 5, emoji: "🌙", name: "MOON CAT",
+    hello: "You made it to space? The memes here are... ancient. Good luck, traveler.",
+  }],
+};
+
+/* ---------- trainers: one-time battles against a 2-cat team ---------- */
+
+export const TRAINERS = {
+  1: [{
+    id: "couchcmdr", x: 12, y: 6, emoji: "🕹️", name: "COUCH COMMANDER",
+    intro: "My thumbs are undefeated!", quote: "GG. My thumbs need ice.",
+    team: [{ catId: "maxwell", level: 4 }, { catId: "pedro", level: 5 }], reward: 45,
+  }],
+  2: [{
+    id: "wanderer", x: 12, y: 4, emoji: "🚪", name: "BACKROOMS WANDERER",
+    intro: "I've been lost here for years... fight me for directions!", quote: "You... you know the way out?",
+    team: [{ catId: "zoned", level: 6 }, { catId: "huh", level: 7 }], reward: 60,
+  }],
+  4: [{
+    id: "ohiokid", x: 7, y: 5, emoji: "🧢", name: "OHIO RIZZLER",
+    intro: "Only in Ohio do we battle strangers!", quote: "That was NOT very sigma of me.",
+    team: [{ catId: "stickbug", level: 9 }, { catId: "pipe", level: 10 }], reward: 80,
+  }],
+};
+
 export function findTile(map, ch) {
   for (let y = 0; y < map.length; y++) {
     const x = map[y].indexOf(ch);
