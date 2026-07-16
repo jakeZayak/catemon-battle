@@ -34,6 +34,20 @@ const loadMeta = () => {
   try { return JSON.parse(localStorage.getItem(META_SAVE)) ?? {}; } catch (e) { return {}; }
 };
 
+const ACHIEVEMENTS = [
+  { id: "firstwin",   icon: "🏆", name: "FIRST W",           desc: "Win your first battle" },
+  { id: "quickwin",   icon: "🥊", name: "MEME BRAWLER",      desc: "Win a Quick Battle" },
+  { id: "roguechamp", icon: "👑", name: "ROGUE CHAMPION",    desc: "Beat the roguelike" },
+  { id: "worldchamp", icon: "🌌", name: "MEME LORD SLAYER",  desc: "Beat adventure mode" },
+  { id: "flawless",   icon: "✨", name: "UNTOUCHABLE",       desc: "Win at full HP" },
+  { id: "befriend1",  icon: "💖", name: "NEW BESTIE",        desc: "Befriend a wild cat" },
+  { id: "fulldex",    icon: "📖", name: "MEMEOLOGIST",       desc: "Meet all 12 cats" },
+  { id: "allfriends", icon: "🫂", name: "EVERYONE'S FRIEND", desc: "Befriend all 12 cats" },
+  { id: "tower5",     icon: "🗼", name: "OHIO SURVIVOR",     desc: "Reach floor 5 of ENDLESS OHIO" },
+  { id: "rich",       icon: "💰", name: "FAT STACKS",        desc: "Hold 200 coins at once" },
+  { id: "wertwin",    icon: "7️⃣", name: "SIX SEVEN!!!",      desc: "Win a battle as WERT" },
+];
+
 const ZONES = [
   { name: "THE KITCHEN", flavor: "Something smells illegal in here.", bossPrefix: "ALPHA" },
   { name: "THE BACKROOMS", flavor: "Yellow walls. Humming lights. Vibes: off.", bossPrefix: "ALPHA" },
@@ -363,17 +377,34 @@ export default function CatemonBattle() {
   const floatTimers = useRef({});
   const flashTimer = useRef(null);
 
-  // CAT-DEX: "seen" upgrades to "befriended", never the other way
+  // persist meta + award the achievements that derive from it
   useEffect(() => {
     localStorage.setItem(META_SAVE, JSON.stringify(meta));
-  }, [meta]);
+    const met = CAT_IDS.filter((id) => meta.dex?.[id]).length;
+    const friends = CAT_IDS.filter((id) => meta.dex?.[id] === "befriended").length;
+    if (met === CAT_IDS.length) unlock("fulldex");
+    if (friends === CAT_IDS.length) unlock("allfriends");
+    if ((meta.towerBest ?? 0) >= 5) unlock("tower5");
+  }, [meta]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // CAT-DEX: "seen" upgrades to "befriended", never the other way
   const markDex = (id, st) =>
     setMeta((m) => {
       const cur = m.dex?.[id];
       if (cur === "befriended" || cur === st) return m;
       return { ...m, dex: { ...m.dex, [id]: st } };
     });
+
+  const unlock = (id) => {
+    if (meta.ach?.[id]) return;
+    setMeta((m) => (m.ach?.[id] ? m : { ...m, ach: { ...m.ach, [id]: true } }));
+    const a = ACHIEVEMENTS.find((x) => x.id === id);
+    showToast(`🏆 ACHIEVEMENT: ${a.name}!`);
+    play("victory");
+  };
+
+  const bumpStat = (key, n = 1) =>
+    setMeta((m) => ({ ...m, stats: { ...m.stats, [key]: (m.stats?.[key] ?? 0) + n } }));
 
   // background music follows the screen; battle gets its own track
   useEffect(() => {
@@ -398,6 +429,7 @@ export default function CatemonBattle() {
       localStorage.setItem(ROGUE_SAVE, JSON.stringify(run));
       setSaves((s) => ({ ...s, rogue: true }));
     }
+    if ((run?.coins ?? 0) >= 200) unlock("rich");
   }, [run, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -405,6 +437,7 @@ export default function CatemonBattle() {
       localStorage.setItem(WORLD_SAVE, JSON.stringify(world));
       setSaves((s) => ({ ...s, world: true }));
     }
+    if ((world?.coins ?? 0) >= 200) unlock("rich");
   }, [world, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearSave = (key) => {
@@ -442,6 +475,10 @@ export default function CatemonBattle() {
     setShowCats(false);
     markDex(p.base.id, "befriended");
     markDex(e.base.id, "seen");
+    setMeta((m) => ({
+      ...m,
+      stats: { ...m.stats, plays: { ...(m.stats?.plays ?? {}), [p.base.id]: (m.stats?.plays?.[p.base.id] ?? 0) + 1 } },
+    }));
     setQueue([]);
     setCurrent({ text: introText });
     setFloats({ player: null, enemy: null });
@@ -574,6 +611,7 @@ export default function CatemonBattle() {
       if (run.zone === ZONES.length - 1) {
         clearSave(ROGUE_SAVE);
         setRun(r);
+        unlock("roguechamp");
         setScreen("victory");
         return;
       }
@@ -674,6 +712,7 @@ export default function CatemonBattle() {
         clearSave(WORLD_SAVE);
         setWorld(w);
         setMeta((m) => (m.towerUnlocked ? m : { ...m, towerUnlocked: true }));
+        unlock("worldchamp");
         setScreen("victory");
         return;
       }
@@ -961,6 +1000,8 @@ export default function CatemonBattle() {
     const chance = 0.25 + 0.65 * (1 - enemyF.hp / enemyF.maxHp);
     if (Math.random() < chance) {
       markDex(enemyF.base.id, "befriended");
+      bumpStat("befriended");
+      unlock("befriend1");
       const member = { catId: enemyF.base.id, level: enemyF.level, hp: Math.max(1, enemyF.hp), bonuses: {}, healsLeft: 2 };
       setWorld({ ...world, hp: playerF.hp, healsLeft: playerF.healsLeft, bench: [...(world.bench ?? []), member] });
       const evs = [
@@ -1010,12 +1051,21 @@ export default function CatemonBattle() {
           advanceWith([ev], null);
           return;
         }
-        if (won) play("victory");
         // a fainted cat isn't the end while teammates can still fight
         if (!won && mode === "world" && (world?.bench ?? []).some((m) => m.hp > 0)) {
           setPhase("switch");
           setCurrent({ text: "Choose your next cat!" });
           return;
+        }
+        if (won) {
+          play("victory");
+          bumpStat("wins");
+          unlock("firstwin");
+          if (mode === "quick") unlock("quickwin");
+          if (playerF.hp === playerF.maxHp) unlock("flawless");
+          if (playerF.base.id === "wert") unlock("wertwin");
+        } else {
+          bumpStat("losses");
         }
         if (mode === "rogue") finishRogueBattle(won, playerF);
         else if (mode === "world") finishWorldBattle(won, playerF);
@@ -1354,6 +1404,37 @@ export default function CatemonBattle() {
         <button className="bigbtn small" onClick={() => { setScreen("dex"); play("select"); }}>
           📖 CAT-DEX {CAT_IDS.filter((id) => meta.dex?.[id]).length}/{CAT_IDS.length}
         </button>
+        <button className="bigbtn small" onClick={() => { setScreen("trophies"); play("select"); }}>
+          🏆 TROPHIES {Object.keys(meta.ach ?? {}).length}/{ACHIEVEMENTS.length}
+        </button>
+      </div>
+    );
+  } else if (screen === "trophies") {
+    const st = meta.stats ?? {};
+    const plays = st.plays ?? {};
+    const fav = Object.keys(plays).sort((a, b) => plays[b] - plays[a])[0];
+    inner = (
+      <div className="center-screen">
+        <div className="center-title">🏆 TROPHIES</div>
+        <div className="center-coins">
+          BATTLES WON: {st.wins ?? 0} · LOST: {st.losses ?? 0} · BEFRIENDED: {st.befriended ?? 0}
+          {fav && <><br />FAVORITE CAT: {CATS[fav].name} ({plays[fav]} battles)</>}
+          {meta.towerBest ? <><br />ENDLESS OHIO BEST: FLOOR {meta.towerBest}</> : null}
+        </div>
+        {ACHIEVEMENTS.map((a) => {
+          const got = meta.ach?.[a.id];
+          return (
+            <div key={a.id} className="shop-item" style={got ? undefined : { opacity: 0.45 }}>
+              <span>{got ? a.icon : "🔒"}</span>
+              <div className="si-info">
+                <div className="si-name">{a.name}</div>
+                <div className="si-desc">{a.desc}</div>
+              </div>
+              {got && <span>✅</span>}
+            </div>
+          );
+        })}
+        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setScreen("title"); play("select"); }}>BACK</button>
       </div>
     );
   } else if (screen === "dex") {
@@ -1677,6 +1758,7 @@ export default function CatemonBattle() {
             <button className="movebtn" onClick={() => { play("select"); setScreen(notice.goto); }}>CONTINUE</button>
           </div>
         </div>
+        {toast && <div className="toast">{toast}</div>}
       </div>
     );
   } else if (screen === "victory") {
@@ -1690,6 +1772,7 @@ export default function CatemonBattle() {
           </span>
         </div>
         <button className="bigbtn" onClick={() => { setRun(null); setWorld(null); setScreen("title"); play("select"); }}>TITLE</button>
+        {toast && <div className="toast">{toast}</div>}
       </div>
     );
   } else if (screen === "over") {
@@ -1722,6 +1805,7 @@ export default function CatemonBattle() {
         >
           {rogue || mode === "tower" ? "TRY AGAIN" : "REMATCH"}
         </button>
+        {toast && <div className="toast">{toast}</div>}
       </div>
     );
   } else {
