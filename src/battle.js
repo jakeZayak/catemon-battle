@@ -217,6 +217,29 @@ function enemyPickMove(enemy, rng) {
   return pool[Math.floor(rng() * pool.length)];
 }
 
+/* Enemy acts alone — used after a voluntary switch or a failed befriend attempt */
+export function enemyFreeRound(playerF, enemyF, rng) {
+  const state = {
+    player: { ...playerF },
+    enemy: { ...enemyF, reflect: false },
+  };
+  const mv = enemyPickMove(state.enemy, rng);
+  const res = useMove(state, "enemy", "player", mv, rng);
+  const events = [...res.events];
+  let outcome = null;
+  if (res.fainted) {
+    const f = state[res.fainted];
+    events.push({
+      text: `${f.name} fainted!`,
+      snapshot: { player: { ...state.player }, enemy: { ...state.enemy } },
+      sfx: res.fainted === "player" ? "lose" : "faint",
+      faint: res.fainted,
+    });
+    outcome = res.fainted === "enemy" ? "win" : "lose";
+  }
+  return { events, outcome };
+}
+
 export function buildRound(playerF, enemyF, playerMove, rng) {
   const state = {
     player: { ...playerF, reflect: false },
