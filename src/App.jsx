@@ -35,8 +35,8 @@ const ZONES = [
   { name: "OHIO", flavor: "Only the strongest memes survive here.", bossPrefix: "MEME LORD" },
 ];
 
-const NODE_ICONS = { battle: "😾", event: "❓", rest: "🛏️", boss: "👑" };
-const NODE_LABELS = { battle: "FIGHT", event: "???", rest: "THE VET", boss: "BOSS" };
+const NODE_ICONS = { battle: "😾", event: "❓", rest: "🛏️", shop: "🛒", boss: "👑" };
+const NODE_LABELS = { battle: "FIGHT", event: "???", rest: "THE VET", shop: "MEME MART", boss: "BOSS" };
 
 /* 4 floors of 2-3 nodes + a boss floor. Floor 1 is always a fight. */
 function genZoneMap(rng = Math.random) {
@@ -47,9 +47,14 @@ function genZoneMap(rng = Math.random) {
     for (let i = 0; i < count; i++) {
       if (f === 0) { nodes.push("battle"); continue; }
       const r = rng();
-      nodes.push(r < 0.55 ? "battle" : r < 0.85 ? "event" : "rest");
+      nodes.push(r < 0.5 ? "battle" : r < 0.8 ? "event" : r < 0.9 ? "rest" : "shop");
     }
     floors.push(nodes);
+  }
+  // every zone gets at least one MEME MART so coins are always spendable
+  if (!floors.flat().includes("shop")) {
+    const f = 1 + Math.floor(rng() * 3);
+    floors[f][Math.floor(rng() * floors[f].length)] = "shop";
   }
   floors.push(["boss"]);
   return floors;
@@ -338,6 +343,8 @@ export default function CatemonBattle() {
     setRun({
       catId, level: 1, hp: f.maxHp, maxHp: f.maxHp,
       bonuses: {}, healsLeft: 3, zone: 0, floor: 0, map: genZoneMap(),
+      coins: 15, bag: { churu: 1 },
+      gear: { owned: [], collar: null, charm: null },
     });
     setScreen("map");
     play("start");
@@ -347,6 +354,10 @@ export default function CatemonBattle() {
     try {
       const saved = JSON.parse(localStorage.getItem(ROGUE_SAVE));
       if (saved?.catId && saved?.map) {
+        // migrate pre-item saves
+        saved.coins ??= 15;
+        saved.bag ??= { churu: 1 };
+        saved.gear ??= { owned: [], collar: null, charm: null };
         setRun(saved);
         setMode("rogue");
         setScreen("map");
@@ -373,6 +384,9 @@ export default function CatemonBattle() {
       const healed = Math.min(Math.round(run.maxHp * 0.6), run.maxHp - run.hp);
       setRun({ ...run, hp: run.hp + healed, healsLeft: 3, floor: run.floor + 1 });
       showNotice(`The vet was surprisingly gentle. Restored ${healed} HP and restocked snacks!`);
+    } else if (type === "shop") {
+      setRun({ ...run, floor: run.floor + 1 });
+      setScreen("center");
     }
   };
 
@@ -436,6 +450,8 @@ export default function CatemonBattle() {
       return;
     }
     let r = levelUpState(run, finalPlayer);
+    const coins = battleIsBoss.current ? 25 : 5 + enemyF.level;
+    r = { ...r, coins: (r.coins ?? 0) + coins };
     const catName = CATS[run.catId].name;
     if (battleIsBoss.current) {
       if (run.zone === ZONES.length - 1) {
@@ -446,11 +462,11 @@ export default function CatemonBattle() {
       }
       r = { ...r, zone: run.zone + 1, floor: 0, map: genZoneMap() };
       setRun(r);
-      showNotice(`ZONE CLEARED! ${catName} grew to LV.${r.level}! Next: ${ZONES[r.zone].name}...`);
+      showNotice(`ZONE CLEARED! ${catName} grew to LV.${r.level}! Next: ${ZONES[r.zone].name}... (+${coins} coins)`);
     } else {
       r = { ...r, floor: run.floor + 1 };
       setRun(r);
-      showNotice(`${catName} grew to LV.${r.level}!`);
+      showNotice(`${catName} grew to LV.${r.level}! Found ${coins} coins!`);
     }
   };
 
@@ -600,44 +616,49 @@ export default function CatemonBattle() {
 
   /* ---------- center (heal + shop) ---------- */
 
+  /* the active adventure save — center, gear, and bag work for both world and rogue */
+  const adv = mode === "world" ? world : run;
+  const setAdv = mode === "world" ? setWorld : setRun;
+  const advScreen = mode === "world" ? "world" : "map";
+
   const centerHeal = () => {
     play("heal");
-    setWorld({ ...world, hp: world.maxHp, healsLeft: 3 });
+    setAdv({ ...adv, hp: adv.maxHp, healsLeft: 3 });
     showToast("Fully healed! Snacks restocked!");
   };
 
   const buyItem = (id) => {
     const item = ITEMS[id];
-    if (world.coins < item.price) { showToast("Not enough coins!"); return; }
+    if (adv.coins < item.price) { showToast("Not enough coins!"); return; }
     play("coin");
-    setWorld({
-      ...world,
-      coins: world.coins - item.price,
-      bag: { ...world.bag, [id]: (world.bag[id] ?? 0) + 1 },
+    setAdv({
+      ...adv,
+      coins: adv.coins - item.price,
+      bag: { ...adv.bag, [id]: (adv.bag[id] ?? 0) + 1 },
     });
   };
 
   const buyEquip = (id) => {
     const eq = EQUIPMENT[id];
-    if (world.gear.owned.includes(id)) return;
-    if (world.coins < eq.price) { showToast("Not enough coins!"); return; }
+    if (adv.gear.owned.includes(id)) return;
+    if (adv.coins < eq.price) { showToast("Not enough coins!"); return; }
     play("coin");
-    setWorld({
-      ...world,
-      coins: world.coins - eq.price,
-      gear: { ...world.gear, owned: [...world.gear.owned, id] },
+    setAdv({
+      ...adv,
+      coins: adv.coins - eq.price,
+      gear: { ...adv.gear, owned: [...adv.gear.owned, id] },
     });
   };
 
   /* equip/unequip; max HP changes flow into current HP sensibly */
   const setGearSlot = (slot, id) => {
     play("select");
-    const w2 = { ...world, gear: { ...world.gear, [slot]: id } };
-    const newMaxHp = computeMaxHp(w2);
-    const hpDelta = newMaxHp - world.maxHp;
-    w2.maxHp = newMaxHp;
-    w2.hp = Math.max(1, Math.min(newMaxHp, world.hp + Math.max(0, hpDelta)));
-    setWorld(w2);
+    const s2 = { ...adv, gear: { ...adv.gear, [slot]: id } };
+    const newMaxHp = computeMaxHp(s2);
+    const hpDelta = newMaxHp - adv.maxHp;
+    s2.maxHp = newMaxHp;
+    s2.hp = Math.max(1, Math.min(newMaxHp, adv.hp + Math.max(0, hpDelta)));
+    setAdv(s2);
   };
 
   /* ---------- battle event loop ---------- */
@@ -654,8 +675,8 @@ export default function CatemonBattle() {
   };
 
   const useItem = (id) => {
-    if ((world?.bag?.[id] ?? 0) <= 0) return;
-    setWorld({ ...world, bag: { ...world.bag, [id]: world.bag[id] - 1 } });
+    if ((adv?.bag?.[id] ?? 0) <= 0) return;
+    setAdv({ ...adv, bag: { ...adv.bag, [id]: adv.bag[id] - 1 } });
     pickMove(itemToMove(id));
   };
 
@@ -1018,8 +1039,10 @@ export default function CatemonBattle() {
           <CatPhoto id={run.catId} size={34} />
           <div className="rb-info">
             <div className="rb-name">{CATS[run.catId].name} · LV.{run.level}</div>
-            <div className="rb-hp">HP {run.hp}/{run.maxHp} · SNACKS ×{run.healsLeft}</div>
+            <div className="rb-hp">HP {run.hp}/{run.maxHp} · SNACKS ×{run.healsLeft} · ¢{run.coins ?? 0}</div>
+            <div className="rb-hp">{Object.keys(ITEMS).filter((id) => (run.bag?.[id] ?? 0) > 0).map((id) => `${ITEMS[id].icon}×${run.bag[id]}`).join(" ") || "bag empty"}</div>
           </div>
+          <button className="gearbtn" onClick={() => { setScreen("gear"); play("select"); }}>🎽 GEAR</button>
         </div>
       </div>
     );
@@ -1088,26 +1111,28 @@ export default function CatemonBattle() {
   } else if (screen === "center") {
     inner = (
       <div className="center-screen">
-        <div className="center-title">🏥 CATEMON CENTER</div>
-        <div className="center-coins">COINS: ¢{world.coins}</div>
-        <button className="movebtn" onClick={centerHeal}>
-          FREE HEAL
-          <small>Full HP + restock snacks</small>
-        </button>
+        <div className="center-title">{mode === "world" ? "🏥 CATEMON CENTER" : "🛒 MEME MART"}</div>
+        <div className="center-coins">COINS: ¢{adv.coins}</div>
+        {mode === "world" && (
+          <button className="movebtn" onClick={centerHeal}>
+            FREE HEAL
+            <small>Full HP + restock snacks</small>
+          </button>
+        )}
         <div className="shop-section">ITEMS</div>
         {Object.values(ITEMS).map((item) => (
           <div key={item.id} className="shop-item">
             <span>{item.icon}</span>
             <div className="si-info">
               <div className="si-name">{item.name} — ¢{item.price}</div>
-              <div className="si-desc">{item.desc} (have ×{world.bag[item.id] ?? 0})</div>
+              <div className="si-desc">{item.desc} (have ×{adv.bag[item.id] ?? 0})</div>
             </div>
-            <button disabled={world.coins < item.price} onClick={() => buyItem(item.id)}>BUY</button>
+            <button disabled={adv.coins < item.price} onClick={() => buyItem(item.id)}>BUY</button>
           </div>
         ))}
         <div className="shop-section">GEAR (equip from the map screen)</div>
         {Object.values(EQUIPMENT).map((eq) => {
-          const owned = world.gear.owned.includes(eq.id);
+          const owned = adv.gear.owned.includes(eq.id);
           return (
             <div key={eq.id} className="shop-item">
               <span>{eq.icon}</span>
@@ -1115,11 +1140,11 @@ export default function CatemonBattle() {
                 <div className="si-name">{eq.name} — {owned ? "OWNED" : `¢${eq.price}`}</div>
                 <div className="si-desc">{eq.desc} · {eq.slot} slot</div>
               </div>
-              <button disabled={owned || world.coins < eq.price} onClick={() => buyEquip(eq.id)}>{owned ? "✓" : "BUY"}</button>
+              <button disabled={owned || adv.coins < eq.price} onClick={() => buyEquip(eq.id)}>{owned ? "✓" : "BUY"}</button>
             </div>
           );
         })}
-        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setScreen("world"); play("select"); }}>
+        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setScreen(advScreen); play("select"); }}>
           LEAVE
         </button>
         {toast && <div className="toast">{toast}</div>}
@@ -1130,8 +1155,8 @@ export default function CatemonBattle() {
       <div className="center-screen">
         <div className="center-title">🎽 GEAR</div>
         {["collar", "charm"].map((slot) => {
-          const equippedId = world.gear[slot];
-          const options = world.gear.owned.filter((id) => EQUIPMENT[id].slot === slot);
+          const equippedId = adv.gear[slot];
+          const options = adv.gear.owned.filter((id) => EQUIPMENT[id].slot === slot);
           return (
             <div key={slot}>
               <div className="shop-section">{slot.toUpperCase()} — {equippedId ? `${EQUIPMENT[equippedId].icon} ${EQUIPMENT[equippedId].name}` : "empty"}</div>
@@ -1153,7 +1178,7 @@ export default function CatemonBattle() {
             </div>
           );
         })}
-        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("world"); play("select"); }}>
+        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen(advScreen); play("select"); }}>
           BACK
         </button>
       </div>
@@ -1232,7 +1257,7 @@ export default function CatemonBattle() {
     // battle
     const showMoves = phase === "command";
     const showLv = mode !== "quick";
-    const bagItems = Object.keys(world?.bag ?? {}).filter((id) => (world.bag[id] ?? 0) > 0);
+    const bagItems = Object.keys(adv?.bag ?? {}).filter((id) => (adv.bag[id] ?? 0) > 0);
     inner = (
       <>
         <div className="arena">
@@ -1279,7 +1304,7 @@ export default function CatemonBattle() {
                 <div className="movegrid">
                   {bagItems.length ? bagItems.map((id) => (
                     <button key={id} className="movebtn" onClick={() => useItem(id)}>
-                      {ITEMS[id].icon} {ITEMS[id].name} ×{world.bag[id]}
+                      {ITEMS[id].icon} {ITEMS[id].name} ×{adv.bag[id]}
                       <small>{ITEMS[id].desc}</small>
                     </button>
                   )) : <div className="msg" style={{ fontSize: 8 }}>The bag is empty...</div>}
@@ -1300,7 +1325,7 @@ export default function CatemonBattle() {
                   ))}
                 </div>
                 <div className="battle-actions">
-                  {mode === "world" && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
+                  {mode !== "quick" && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
                   {mode !== "quick" && <button className="actionbtn" onClick={fleeBattle}>🏃 RUN</button>}
                 </div>
               </>
