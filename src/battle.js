@@ -66,7 +66,7 @@ function useMove(state, userKey, foeKey, move, rng) {
       if (rng() < 0.25) {
         const self = Math.max(1, Math.round(6 + rng() * 6));
         state[userKey] = { ...user(), hp: Math.max(0, user().hp - self) };
-        events.push({ text: `It hurt itself in confusion! (${self} dmg)`, snapshot: snap(), sfx: "hit", shake: userKey });
+        events.push({ text: `It hurt itself in confusion! (${self} dmg)`, snapshot: snap(), sfx: "hit", shake: userKey, dmg: self });
         return { events, fainted: state[userKey].hp <= 0 ? userKey : state[foeKey].hp <= 0 ? foeKey : null };
       }
     }
@@ -118,13 +118,15 @@ function useMove(state, userKey, foeKey, move, rng) {
       state[tgt] = { ...foe(), hp: Math.max(0, foe().hp - res.dmg) };
     }
     if (move.fx.multi) {
-      events.push({ text: `Hit ${hits} time${hits > 1 ? "s" : ""}! (${total} dmg)`, snapshot: snap(), sfx: "hit", shake: tgt });
+      events.push({ text: `Hit ${hits} time${hits > 1 ? "s" : ""}! (${total} dmg)`, snapshot: snap(), sfx: "hit", shake: tgt, dmg: total });
     } else {
       events.push({
         text: `${anyCrit ? "Critical hit! " : ""}It dealt ${total} damage!`,
         snapshot: snap(),
         sfx: "hit",
         shake: tgt,
+        dmg: total,
+        crit: anyCrit,
       });
     }
     if (eff > 1) events.push({ text: `It's super effective!`, snapshot: snap(), sfx: "buff" });
@@ -132,7 +134,7 @@ function useMove(state, userKey, foeKey, move, rng) {
     if (move.fx.recoil && total > 0 && user().hp > 0 && tgt !== userKey) {
       const rec = Math.max(1, Math.round(total * move.fx.recoil));
       state[userKey] = { ...user(), hp: Math.max(0, user().hp - rec) };
-      events.push({ text: `${user().name} took ${rec} recoil damage!`, snapshot: snap(), sfx: "hit", shake: userKey });
+      events.push({ text: `${user().name} took ${rec} recoil damage!`, snapshot: snap(), sfx: "hit", shake: userKey, dmg: rec });
     }
   }
 
@@ -191,7 +193,7 @@ function useMove(state, userKey, foeKey, move, rng) {
           hp: user().hp + healed,
           healsLeft: move.item ? user().healsLeft : user().healsLeft - 1,
         };
-        events.push({ text: `${user().name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal", healAnim: userKey });
+        events.push({ text: `${user().name} restored ${healed} HP!`, snapshot: snap(), sfx: "heal", healAnim: userKey, healed });
       } else {
         events.push({ text: `But its HP is already full!`, snapshot: snap() });
       }

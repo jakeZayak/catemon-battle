@@ -129,10 +129,26 @@ const EVENTS = [
 
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
 
+/* looping chiptune tracks: notes/bass are [midi (0 = rest), beats] */
+const MUSIC_TRACKS = {
+  overworld: {
+    bpm: 132, wave: "triangle", vol: 0.022,
+    notes: [[72,1],[76,1],[79,1],[76,1],[81,1.5],[79,0.5],[76,1],[72,1],[74,1],[77,1],[81,1],[77,1],[79,1.5],[76,0.5],[74,1],[72,1]],
+    bass: [[48,2],[52,2],[45,2],[43,2],[50,2],[53,2],[43,2],[48,2]],
+  },
+  battle: {
+    bpm: 168, wave: "square", vol: 0.016,
+    notes: [[69,0.5],[69,0.5],[72,0.5],[74,0.5],[76,1],[74,0.5],[72,0.5],[69,1],[67,0.5],[69,0.5],[72,1],[65,0.5],[67,0.5],[69,2]],
+    bass: [[45,1],[45,1],[41,1],[43,1],[45,1],[48,1],[43,2],[45,2]],
+  },
+};
+const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
 function useSfx() {
   const ctxRef = useRef(null);
   const mutedRef = useRef(false);
   const catAudioRef = useRef(null);
+  const musicRef = useRef({ timer: null, track: null, gainNode: null });
 
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
@@ -182,12 +198,65 @@ function useSfx() {
       if (kind === "start") { beep(523, 0, 0.08); beep(523, 0.1, 0.08); beep(784, 0.2, 0.16); }
       if (kind === "coin") { beep(988, 0, 0.06); beep(1319, 0.07, 0.1); }
       if (kind === "step") beep(180, 0, 0.03, "triangle", 0.02);
+      if (kind === "warn") { beep(660, 0, 0.08, "square", 0.05); beep(660, 0.16, 0.08, "square", 0.05); }
+      if (kind === "victory") { beep(523, 0, 0.09); beep(659, 0.1, 0.09); beep(784, 0.2, 0.09); beep(1046, 0.3, 0.2); beep(784, 0.44, 0.08); beep(1046, 0.54, 0.3); }
     } catch (e) {
       /* audio unavailable */
     }
   }, []);
 
-  return { play, mutedRef, catAudioRef };
+  /* ---------- looping background music ---------- */
+
+  const stopMusic = useCallback(() => {
+    clearTimeout(musicRef.current.timer);
+    musicRef.current.timer = null;
+    musicRef.current.track = null;
+    musicRef.current.gainNode?.disconnect(); // silences any already-scheduled notes
+    musicRef.current.gainNode = null;
+  }, []);
+
+  const startMusic = useCallback((trackName) => {
+    if (musicRef.current.track === trackName) return;
+    stopMusic();
+    try {
+      if (!ctxRef.current) ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = ctxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+      const master = ctx.createGain();
+      master.gain.value = 1;
+      master.connect(ctx.destination);
+      musicRef.current.track = trackName;
+      musicRef.current.gainNode = master;
+
+      const scheduleLoop = () => {
+        if (musicRef.current.track !== trackName || musicRef.current.gainNode !== master) return;
+        const t = MUSIC_TRACKS[trackName];
+        const beat = 60 / t.bpm;
+        const start = ctx.currentTime + 0.06;
+        const noteOn = (midi, at, len, type, vol) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = type;
+          o.frequency.value = midiHz(midi);
+          g.gain.setValueAtTime(vol, at);
+          g.gain.exponentialRampToValueAtTime(0.001, at + len * 0.92);
+          o.connect(g).connect(master);
+          o.start(at);
+          o.stop(at + len);
+        };
+        let at = start;
+        for (const [m, b] of t.notes) { if (m) noteOn(m, at, b * beat, t.wave, t.vol); at += b * beat; }
+        let bt = start;
+        for (const [m, b] of t.bass) { if (m) noteOn(m, bt, b * beat, "triangle", t.vol * 1.3); bt += b * beat; }
+        musicRef.current.timer = setTimeout(scheduleLoop, (at - start - 0.08) * 1000);
+      };
+      scheduleLoop();
+    } catch (e) {
+      /* audio unavailable */
+    }
+  }, [stopMusic]);
+
+  return { play, mutedRef, catAudioRef, startMusic, stopMusic };
 }
 
 /* ---------- UI components ---------- */
@@ -199,7 +268,7 @@ function HpBar({ hp, maxHp }) {
     <div className="hpbar-outer">
       <span className="hp-label">HP</span>
       <div className="hpbar-track">
-        <div className="hpbar-fill" style={{ width: `${pct}%`, background: color }} />
+        <div className={`hpbar-fill ${pct <= 25 && hp > 0 ? "hp-low" : ""}`} style={{ width: `${pct}%`, background: color }} />
       </div>
     </div>
   );
@@ -260,6 +329,9 @@ export default function CatemonBattle() {
   const [fainting, setFainting] = useState(null);
   const [showBag, setShowBag] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [musicOn, setMusicOn] = useState(() => localStorage.getItem("catemon-music") !== "0");
+  const [floats, setFloats] = useState({ player: null, enemy: null });
+  const [battleFlash, setBattleFlash] = useState(false);
   const [saves, setSaves] = useState(() => ({
     rogue: !!localStorage.getItem(ROGUE_SAVE),
     world: !!localStorage.getItem(WORLD_SAVE),
@@ -273,8 +345,18 @@ export default function CatemonBattle() {
   const battleIsBoss = useRef(false);
   const toastTimer = useRef(null);
   const swipeStart = useRef(null);
-  const { play, mutedRef, catAudioRef } = useSfx();
+  const { play, mutedRef, catAudioRef, startMusic, stopMusic } = useSfx();
   const rng = Math.random;
+  const floatId = useRef(0);
+  const floatTimers = useRef({});
+  const flashTimer = useRef(null);
+
+  // background music follows the screen; battle gets its own track
+  useEffect(() => {
+    localStorage.setItem("catemon-music", musicOn ? "1" : "0");
+    if (!musicOn || muted) { stopMusic(); return; }
+    startMusic(screen === "battle" ? "battle" : "overworld");
+  }, [screen, musicOn, muted, startMusic, stopMusic]);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -332,8 +414,12 @@ export default function CatemonBattle() {
     setShowBag(false);
     setQueue([]);
     setCurrent({ text: introText });
+    setFloats({ player: null, enemy: null });
     setPhase("intro");
     setScreen("battle");
+    setBattleFlash(true);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setBattleFlash(false), 700);
     play("airhorn");
   };
 
@@ -681,10 +767,21 @@ export default function CatemonBattle() {
     pickMove(itemToMove(id));
   };
 
+  const spawnFloat = (target, text, kind) => {
+    const id = ++floatId.current;
+    setFloats((f) => ({ ...f, [target]: { id, text, kind } }));
+    clearTimeout(floatTimers.current[target]);
+    floatTimers.current[target] = setTimeout(
+      () => setFloats((f) => (f[target]?.id === id ? { ...f, [target]: null } : f)),
+      950
+    );
+  };
+
   const advanceWith = (q, oc) => {
     if (!q.length) {
       if (oc) {
         const won = oc === "win";
+        if (won) play("victory");
         if (mode === "rogue") finishRogueBattle(won, playerF);
         else if (mode === "world") finishWorldBattle(won, playerF);
         else setScreen("over");
@@ -698,10 +795,16 @@ export default function CatemonBattle() {
     setCurrent(next);
     setQueue(rest);
     if (next.snapshot) {
+      // soft warning beep the moment the player's HP drops into the red
+      const wasLow = playerF.hp / playerF.maxHp < 0.25;
+      const isLow = next.snapshot.player.hp / next.snapshot.player.maxHp < 0.25;
+      if (!wasLow && isLow && next.snapshot.player.hp > 0) play("warn");
       setPlayerF(next.snapshot.player);
       setEnemyF(next.snapshot.enemy);
     }
     if (next.sfx) play(next.sfx);
+    if (next.dmg && next.shake) spawnFloat(next.shake, `-${next.dmg}`, next.crit ? "crit" : "dmg");
+    if (next.healed && next.healAnim) spawnFloat(next.healAnim, `+${next.healed}`, "heal");
     // one CSS animation class per fighter per event line
     const ANIMS = {
       shake:   { cls: "shaking",   ms: 350 },
@@ -800,7 +903,20 @@ export default function CatemonBattle() {
       .hpbar-outer { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
       .hp-label { font-size: 7px; color: #c8742a; }
       .hpbar-track { flex: 1; height: 8px; background: #4a4c40; border-radius: 4px; padding: 1.5px; }
-      .hpbar-fill { height: 100%; border-radius: 3px; transition: width 0.45s steps(12); }
+      .hpbar-fill { height: 100%; border-radius: 3px; transition: width 0.5s cubic-bezier(.4,0,.2,1), background 0.3s; }
+      .hp-low { animation: hp-pulse 0.7s steps(2) infinite; }
+      @keyframes hp-pulse { 50% { opacity: 0.55; } }
+      .dmgfloat { position: absolute; top: -12px; left: 50%; font-size: 13px; color: #e05038; z-index: 5;
+        text-shadow: 2px 2px 0 rgba(255,255,255,0.85); white-space: nowrap; pointer-events: none;
+        animation: floatup 0.95s ease-out forwards; }
+      .dmgfloat.crit { font-size: 16px; color: #e8a020; }
+      .dmgfloat.heal { color: #2a9a4a; }
+      @keyframes floatup { 0% { opacity: 0; transform: translate(-50%, 6px); } 15% { opacity: 1; }
+        100% { opacity: 0; transform: translate(-50%, -28px); } }
+      .battle-swirl { position: absolute; inset: 0; z-index: 30; pointer-events: none;
+        background: repeating-radial-gradient(circle at 50% 45%, #14151c 0 14px, #2e3040 14px 28px);
+        animation: swirl-out 0.65s steps(8) forwards; }
+      @keyframes swirl-out { 0% { opacity: 1; } 100% { opacity: 0; } }
       .hp-num { font-size: 8px; text-align: right; margin-top: 5px; color: #24261e; }
       .status-row { margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap; }
       .tag { font-size: 6px; background: #d8d4b8; border: 1px solid #6a6c58; border-radius: 3px; padding: 2px 3px; color: #34362a; }
@@ -1286,9 +1402,11 @@ export default function CatemonBattle() {
           <InfoBox f={playerF} showNum={true} align="player" showLv={showLv} />
           <div className={`slot-enemy ${anim.enemy ?? ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
             <CatPhoto id={enemyF.base.id} size={78} />
+            {floats.enemy && <div key={floats.enemy.id} className={`dmgfloat ${floats.enemy.kind}`}>{floats.enemy.text}</div>}
           </div>
           <div className={`slot-player ${anim.player ?? ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
             <CatPhoto id={playerF.base.id} size={100} flip />
+            {floats.player && <div key={floats.player.id} className={`dmgfloat ${floats.player.kind}`}>{floats.player.text}</div>}
           </div>
           {unoCard && (
             <div className="uno-overlay">
@@ -1314,6 +1432,7 @@ export default function CatemonBattle() {
             </div>
           )}
           {toast && <div className="toast">{toast}</div>}
+          {battleFlash && <div className="battle-swirl" />}
         </div>
         <div className="textbox" onClick={!showMoves ? onAdvance : undefined} role={!showMoves ? "button" : undefined}>
           {showMoves ? (
@@ -1367,6 +1486,7 @@ export default function CatemonBattle() {
         <div className="cb-shell-top">
           <span className="cb-brand">CATÉMON v3.0</span>
           {screen !== "title" && <button className="cb-menu" onClick={menuButton}>MENU</button>}
+          <button className="cb-mute" onClick={() => setMusicOn((m) => !m)}>{musicOn ? "♪ ON" : "♪ OFF"}</button>
           <button className="cb-mute" onClick={() => setMuted((m) => !m)}>{muted ? "SOUND: OFF" : "SOUND: ON"}</button>
         </div>
         <div className="screen">
