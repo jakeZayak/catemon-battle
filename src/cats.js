@@ -62,6 +62,30 @@ export const GAME_SOUNDS = {
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
 
+/* ---------- looping music tracks + one-shot jingles ---------- */
+
+const music = (name) => asset(`sounds/music/${name}.mp3`);
+
+export const MUSIC = {
+  title: music("title"),
+  center: music("center"),
+  tower: music("tower"),
+  areas: ["area-kitchen", "area-livingroom", "area-backrooms", "area-garden", "area-ohio", "area-space"].map(music),
+  zones: ["zone-1", "zone-2", "zone-3"].map(music),
+  battleWild: music("battle-wild"),
+  battleBoss: music("battle-boss"),
+  battleFinal: music("battle-final"),
+  victoryWild: music("victory-wild"),
+  victoryBoss: music("victory-boss"),
+};
+
+export const JINGLES = {
+  levelup: music("jingle-levelup"),
+  item: music("jingle-item"),
+  keyitem: music("jingle-keyitem"),
+  befriend: music("jingle-befriend"),
+};
+
 /* ---------- battle families (type chart) ----------
    Single cycle: each family beats the next and is weak to the previous.
    GOOFY → CHAOS → CLANG → GROOVE → SNACC → ZOOM → GOOFY */

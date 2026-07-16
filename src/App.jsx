@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS } from "./cats.js";
+import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS, MUSIC, JINGLES } from "./cats.js";
 import { newFighter, buildRound, enemyFreeRound, levelMul } from "./battle.js";
 import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses, NPCS, TRAINERS } from "./world.js";
 
@@ -148,26 +148,11 @@ const EVENTS = [
 
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
 
-/* looping chiptune tracks: notes/bass are [midi (0 = rest), beats] */
-const MUSIC_TRACKS = {
-  overworld: {
-    bpm: 132, wave: "triangle", vol: 0.022,
-    notes: [[72,1],[76,1],[79,1],[76,1],[81,1.5],[79,0.5],[76,1],[72,1],[74,1],[77,1],[81,1],[77,1],[79,1.5],[76,0.5],[74,1],[72,1]],
-    bass: [[48,2],[52,2],[45,2],[43,2],[50,2],[53,2],[43,2],[48,2]],
-  },
-  battle: {
-    bpm: 168, wave: "square", vol: 0.016,
-    notes: [[69,0.5],[69,0.5],[72,0.5],[74,0.5],[76,1],[74,0.5],[72,0.5],[69,1],[67,0.5],[69,0.5],[72,1],[65,0.5],[67,0.5],[69,2]],
-    bass: [[45,1],[45,1],[41,1],[43,1],[45,1],[48,1],[43,2],[45,2]],
-  },
-};
-const midiHz = (m) => 440 * Math.pow(2, (m - 69) / 12);
-
 function useSfx() {
   const ctxRef = useRef(null);
   const mutedRef = useRef(false);
   const catAudioRef = useRef(null);
-  const musicRef = useRef({ timer: null, track: null, gainNode: null });
+  const musicRef = useRef({ audio: null, src: null });
 
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
@@ -180,6 +165,10 @@ function useSfx() {
     };
 
     if (kind === "helicopter") { playFile(HELICOPTER_SOUND); return; }
+    if (kind.startsWith("jingle:")) {
+      const j = JINGLES[kind.slice(7)];
+      if (j) { playFile(j); return; }
+    }
     if (kind === "airhorn") { playFile(GAME_SOUNDS.airhorn); return; }
     if (kind === "eating") { playFile(GAME_SOUNDS.eating); return; }
     if (kind === "lose") { playFile(GAME_SOUNDS.lose[Math.floor(Math.random() * GAME_SOUNDS.lose.length)]); return; }
@@ -224,56 +213,24 @@ function useSfx() {
     }
   }, []);
 
-  /* ---------- looping background music ---------- */
+  /* ---------- looping background music (real tracks) ---------- */
 
   const stopMusic = useCallback(() => {
-    clearTimeout(musicRef.current.timer);
-    musicRef.current.timer = null;
-    musicRef.current.track = null;
-    musicRef.current.gainNode?.disconnect(); // silences any already-scheduled notes
-    musicRef.current.gainNode = null;
+    musicRef.current.audio?.pause();
+    musicRef.current = { audio: null, src: null };
+    window.__catemonMusic = null;
   }, []);
 
-  const startMusic = useCallback((trackName) => {
-    if (musicRef.current.track === trackName) return;
-    stopMusic();
-    try {
-      if (!ctxRef.current) ctxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = ctxRef.current;
-      if (ctx.state === "suspended") ctx.resume();
-      const master = ctx.createGain();
-      master.gain.value = 1;
-      master.connect(ctx.destination);
-      musicRef.current.track = trackName;
-      musicRef.current.gainNode = master;
-
-      const scheduleLoop = () => {
-        if (musicRef.current.track !== trackName || musicRef.current.gainNode !== master) return;
-        const t = MUSIC_TRACKS[trackName];
-        const beat = 60 / t.bpm;
-        const start = ctx.currentTime + 0.06;
-        const noteOn = (midi, at, len, type, vol) => {
-          const o = ctx.createOscillator();
-          const g = ctx.createGain();
-          o.type = type;
-          o.frequency.value = midiHz(midi);
-          g.gain.setValueAtTime(vol, at);
-          g.gain.exponentialRampToValueAtTime(0.001, at + len * 0.92);
-          o.connect(g).connect(master);
-          o.start(at);
-          o.stop(at + len);
-        };
-        let at = start;
-        for (const [m, b] of t.notes) { if (m) noteOn(m, at, b * beat, t.wave, t.vol); at += b * beat; }
-        let bt = start;
-        for (const [m, b] of t.bass) { if (m) noteOn(m, bt, b * beat, "triangle", t.vol * 1.3); bt += b * beat; }
-        musicRef.current.timer = setTimeout(scheduleLoop, (at - start - 0.08) * 1000);
-      };
-      scheduleLoop();
-    } catch (e) {
-      /* audio unavailable */
-    }
-  }, [stopMusic]);
+  const startMusic = useCallback((src) => {
+    if (musicRef.current.src === src) return;
+    musicRef.current.audio?.pause();
+    const audio = new Audio(src);
+    audio.loop = true;
+    audio.volume = 0.45;
+    musicRef.current = { audio, src };
+    window.__catemonMusic = src; // test hook
+    audio.play().catch(() => {});
+  }, []);
 
   return { play, mutedRef, catAudioRef, startMusic, stopMusic };
 }
@@ -351,6 +308,8 @@ export default function CatemonBattle() {
   const [meta, setMeta] = useState(loadMeta);
   const [muted, setMuted] = useState(false);
   const [musicOn, setMusicOn] = useState(() => localStorage.getItem("catemon-music") !== "0");
+  const [musicOverride, setMusicOverride] = useState(null); // victory theme after a win
+  const battleMusicRef = useRef(null);
   const [floats, setFloats] = useState({ player: null, enemy: null });
   const [battleFlash, setBattleFlash] = useState(false);
   const [saves, setSaves] = useState(() => ({
@@ -364,6 +323,7 @@ export default function CatemonBattle() {
   });
   const [showChart, setShowChart] = useState(false);
   const [npcDialog, setNpcDialog] = useState(null);
+  const [gearTarget, setGearTarget] = useState("active"); // which team cat the GEAR screen edits
   const [tower, setTower] = useState(null); // { catId, level, hp, maxHp, healsLeft, floor }
   const battleIsBoss = useRef(false);
   const encounterPending = useRef(false);
@@ -406,12 +366,28 @@ export default function CatemonBattle() {
   const bumpStat = (key, n = 1) =>
     setMeta((m) => ({ ...m, stats: { ...m.stats, [key]: (m.stats?.[key] ?? 0) + n } }));
 
-  // background music follows the screen; battle gets its own track
+  // music routing: victory override sticks through battle/notice/victory/over,
+  // otherwise the screen decides the track
   useEffect(() => {
     localStorage.setItem("catemon-music", musicOn ? "1" : "0");
     if (!musicOn || muted) { stopMusic(); return; }
-    startMusic(screen === "battle" ? "battle" : "overworld");
-  }, [screen, musicOn, muted, startMusic, stopMusic]);
+    if (musicOverride) {
+      if (["battle", "notice", "victory", "over"].includes(screen)) {
+        startMusic(musicOverride);
+        return;
+      }
+      setMusicOverride(null);
+      return; // effect re-runs with the override cleared
+    }
+    let track = MUSIC.title;
+    if (screen === "battle") track = battleMusicRef.current ?? MUSIC.battleWild;
+    else if (screen === "world") track = MUSIC.areas[world?.area ?? 0];
+    else if (screen === "map" || screen === "event") track = MUSIC.zones[run?.zone ?? 0];
+    else if (screen === "tower") track = MUSIC.tower;
+    else if (["center", "gear", "storage"].includes(screen)) track = MUSIC.center;
+    else if (screen === "notice") return; // keep whatever is playing
+    startMusic(track);
+  }, [screen, musicOn, muted, musicOverride, world?.area, run?.zone, startMusic, stopMusic]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -465,6 +441,8 @@ export default function CatemonBattle() {
     encounterPending.current = false;
     trainerRef.current = null;
     enemyBenchRef.current = [];
+    battleMusicRef.current = MUSIC.battleWild; // starters override for boss/final fights
+    setMusicOverride(null);
     setPlayerF(p);
     setEnemyF(e);
     setOutcome(null);
@@ -523,6 +501,7 @@ export default function CatemonBattle() {
   };
 
   const showNotice = (text, goto = "map") => {
+    if (text.includes("grew to LV.")) play("jingle:levelup");
     setNotice({ text, goto });
     setScreen("notice");
   };
@@ -579,6 +558,7 @@ export default function CatemonBattle() {
       ? newFighter(wildId, { level: rogueBossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
       : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor), statScale: 0.9 });
     beginBattle(p, e, isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!`);
+    if (isBoss) battleMusicRef.current = run.zone === ZONES.length - 1 ? MUSIC.battleFinal : MUSIC.battleBoss;
   };
 
   /* max HP from level + perks + gear — the single source of truth */
@@ -636,7 +616,7 @@ export default function CatemonBattle() {
       area: 0, x: spawn.x, y: spawn.y,
       coins: 15, bag: { churu: 1 }, picked: [],
       gear: { owned: [], collar: null, charm: null },
-      bench: [], quests: {}, beaten: [],
+      bench: [], box: [], quests: {}, beaten: [],
     });
     setScreen("world");
     play("start");
@@ -646,9 +626,10 @@ export default function CatemonBattle() {
     try {
       const saved = JSON.parse(localStorage.getItem(WORLD_SAVE));
       if (saved?.catId && saved?.bag) {
-        // migrate pre-equipment / pre-team / pre-quest saves
+        // migrate pre-equipment / pre-team / pre-quest / pre-storage saves
         saved.gear ??= { owned: [], collar: null, charm: null };
-        saved.bench ??= [];
+        saved.bench = (saved.bench ?? []).map((m) => ({ gear: { collar: null, charm: null }, ...m }));
+        saved.box = (saved.box ?? []).map((m) => ({ gear: { collar: null, charm: null }, ...m }));
         saved.quests ??= {};
         saved.beaten ??= [];
         setWorld(saved);
@@ -670,6 +651,7 @@ export default function CatemonBattle() {
       ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
       : newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9 });
     beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
+    if (isBoss) battleMusicRef.current = world.area === AREAS.length - 1 ? MUSIC.battleFinal : MUSIC.battleBoss;
   };
 
   const startTrainerBattle = (tr) => {
@@ -679,6 +661,7 @@ export default function CatemonBattle() {
     beginBattle(p, fighters[0], `${tr.emoji} ${tr.name}: "${tr.intro}"`);
     trainerRef.current = tr;
     enemyBenchRef.current = fighters.slice(1);
+    battleMusicRef.current = MUSIC.battleBoss;
   };
 
   const finishWorldBattle = (won, finalPlayer) => {
@@ -723,6 +706,7 @@ export default function CatemonBattle() {
         const drop = unowned[Math.floor(Math.random() * unowned.length)];
         w = { ...w, gear: { ...w.gear, owned: [...w.gear.owned, drop] } };
         dropText = ` The boss dropped a ${EQUIPMENT[drop].name}!`;
+        play("jingle:keyitem");
       }
       const nextArea = world.area + 1;
       const spawn = findTile(AREAS[nextArea].map, "S");
@@ -767,6 +751,7 @@ export default function CatemonBattle() {
       statScale: 0.95,
     });
     beginBattle(p, e, `FLOOR ${tower.floor}: ${e.name} blocks the stairs!`);
+    battleMusicRef.current = MUSIC.battleBoss;
   };
 
   const finishTowerBattle = (won, finalPlayer) => {
@@ -845,14 +830,16 @@ export default function CatemonBattle() {
           if (got.coins) {
             next = { ...next, coins: next.coins + got.coins };
             showToast(`Found ${got.coins} coins!`);
+            play("jingle:item");
           } else if (got.equip) {
             next = { ...next, gear: { ...next.gear, owned: [...next.gear.owned, got.equip] } };
             showToast(`Found a ${EQUIPMENT[got.equip].name}! (gear)`);
+            play("jingle:keyitem");
           } else {
             next = { ...next, bag: { ...next.bag, [got.item]: (next.bag[got.item] ?? 0) + 1 } };
             showToast(`Found a ${ITEMS[got.item].name}!`);
+            play("jingle:item");
           }
-          play("coin");
         }
         return next;
       }
@@ -896,8 +883,31 @@ export default function CatemonBattle() {
       hp: adv.maxHp,
       healsLeft: 3,
       bench: (adv.bench ?? []).map((m) => ({ ...m, hp: memberMaxHp(m), healsLeft: 2 })),
+      box: (adv.box ?? []).map((m) => ({ ...m, hp: memberMaxHp(m), healsLeft: 2 })),
     });
     showToast("Fully healed! Snacks restocked!");
+  };
+
+  /* ---------- cat storage (world mode, at the center) ---------- */
+
+  const storeCat = (i) => {
+    const bench = [...(world.bench ?? [])];
+    const m = bench.splice(i, 1)[0];
+    const hadGear = m.gear?.collar || m.gear?.charm;
+    const stripped = { ...m, gear: { collar: null, charm: null } }; // gear goes back to the pool
+    stripped.hp = Math.min(m.hp, memberMaxHp(stripped));
+    setWorld({ ...world, bench, box: [...(world.box ?? []), stripped] });
+    play("select");
+    showToast(hadGear ? `${CATS[m.catId].name} stored — its gear was returned!` : `${CATS[m.catId].name} stored!`);
+  };
+
+  const takeCat = (i) => {
+    if ((world.bench ?? []).length >= 2) { showToast("Team full — store someone first!"); return; }
+    const box = [...(world.box ?? [])];
+    const m = box.splice(i, 1)[0];
+    setWorld({ ...world, box, bench: [...(world.bench ?? []), m] });
+    play("coin");
+    showToast(`${CATS[m.catId].name} joined the team!`);
   };
 
   const buyItem = (id) => {
@@ -923,14 +933,41 @@ export default function CatemonBattle() {
     });
   };
 
-  /* equip/unequip; max HP changes flow into current HP sensibly */
-  const setGearSlot = (slot, id) => {
+  /* who is wearing this gear piece right now? "active", a bench index, or null */
+  const gearWearer = (id) => {
+    if (adv.gear.collar === id || adv.gear.charm === id) return "active";
+    const i = (adv.bench ?? []).findIndex((m) => m.gear?.collar === id || m.gear?.charm === id);
+    return i === -1 ? null : i;
+  };
+
+  /* equip/unequip on any team cat; equipping steals the piece from its current
+     wearer (auto-swap). Active max-HP changes flow into current HP sensibly. */
+  const setGearSlot = (target, slot, id) => {
     play("select");
-    const s2 = { ...adv, gear: { ...adv.gear, [slot]: id } };
-    const newMaxHp = computeMaxHp(s2);
-    const hpDelta = newMaxHp - adv.maxHp;
-    s2.maxHp = newMaxHp;
-    s2.hp = Math.max(1, Math.min(newMaxHp, adv.hp + Math.max(0, hpDelta)));
+    const s2 = { ...adv, bench: adv.bench ? [...adv.bench] : adv.bench };
+    // take the piece off whoever is wearing it
+    if (id != null) {
+      const wearer = gearWearer(id);
+      if (wearer === "active" && target !== "active") {
+        s2.gear = { ...s2.gear, [EQUIPMENT[id].slot]: null };
+        showToast(`${EQUIPMENT[id].name} moved from ${CATS[s2.catId].name}`);
+      } else if (typeof wearer === "number" && wearer !== target) {
+        const m = s2.bench[wearer];
+        s2.bench[wearer] = { ...m, gear: { ...m.gear, [EQUIPMENT[id].slot]: null } };
+        showToast(`${EQUIPMENT[id].name} moved from ${CATS[m.catId].name}`);
+      }
+    }
+    if (target === "active") {
+      s2.gear = { ...s2.gear, [slot]: id };
+    } else {
+      const m = s2.bench[target];
+      s2.bench[target] = { ...m, gear: { ...m.gear, [slot]: id } };
+    }
+    // normalize HP: active heals by any max-HP gain; everyone clamps to their max
+    const oldMax = adv.maxHp;
+    s2.maxHp = computeMaxHp(s2);
+    s2.hp = Math.max(1, Math.min(s2.maxHp, s2.hp + Math.max(0, s2.maxHp - oldMax)));
+    if (s2.bench) s2.bench = s2.bench.map((m) => ({ ...m, hp: Math.min(m.hp, memberMaxHp(m)) })); // fainted cats stay at 0
     setAdv(s2);
   };
 
@@ -956,8 +993,9 @@ export default function CatemonBattle() {
 
   /* ---------- team: switching + befriending (world mode) ---------- */
 
-  /* a benched member's max HP — no gear bonus, gear only helps the active cat */
-  const memberMaxHp = (m) => Math.round(CATS[m.catId].stats.hp * levelMul(m.level)) + (m.bonuses?.hp ?? 0);
+  /* a benched/boxed member's max HP — includes its own equipped gear */
+  const memberMaxHp = (m) =>
+    Math.round(CATS[m.catId].stats.hp * levelMul(m.level)) + (m.bonuses?.hp ?? 0) + (gearBonuses(m.gear).hp ?? 0);
 
   const performSwitch = (benchIdx, free = false) => {
     const bench = [...(world.bench ?? [])];
@@ -966,10 +1004,14 @@ export default function CatemonBattle() {
     const outgoing = {
       catId: playerF.base.id, level: playerF.level,
       bonuses: world.bonuses ?? {}, healsLeft: playerF.healsLeft,
+      gear: { collar: world.gear.collar, charm: world.gear.charm }, // each cat keeps its own gear
     };
     outgoing.hp = Math.min(playerF.hp, memberMaxHp(outgoing));
     bench[benchIdx] = outgoing;
-    const w2 = { ...world, catId: incoming.catId, level: incoming.level, bonuses: incoming.bonuses ?? {}, healsLeft: incoming.healsLeft, bench };
+    const w2 = {
+      ...world, catId: incoming.catId, level: incoming.level, bonuses: incoming.bonuses ?? {}, healsLeft: incoming.healsLeft, bench,
+      gear: { ...world.gear, collar: incoming.gear?.collar ?? null, charm: incoming.gear?.charm ?? null },
+    };
     w2.maxHp = computeMaxHp(w2);
     w2.hp = Math.min(incoming.hp, w2.maxHp);
     setWorld(w2);
@@ -992,7 +1034,6 @@ export default function CatemonBattle() {
 
   const tryBefriend = () => {
     if (phase !== "command") return;
-    if ((world.bench ?? []).length >= 2) { showToast("Your team is full! (3 cats max)"); return; }
     setShowBag(false);
     setShowCats(false);
     const snap = { player: { ...playerF }, enemy: { ...enemyF } };
@@ -1002,11 +1043,24 @@ export default function CatemonBattle() {
       markDex(enemyF.base.id, "befriended");
       bumpStat("befriended");
       unlock("befriend1");
-      const member = { catId: enemyF.base.id, level: enemyF.level, hp: Math.max(1, enemyF.hp), bonuses: {}, healsLeft: 2 };
-      setWorld({ ...world, hp: playerF.hp, healsLeft: playerF.healsLeft, bench: [...(world.bench ?? []), member] });
+      const member = {
+        catId: enemyF.base.id, level: enemyF.level, hp: Math.max(1, enemyF.hp),
+        bonuses: {}, healsLeft: 2, gear: { collar: null, charm: null },
+      };
+      const teamFull = (world.bench ?? []).length >= 2;
+      setWorld({
+        ...world, hp: playerF.hp, healsLeft: playerF.healsLeft,
+        bench: teamFull ? world.bench : [...(world.bench ?? []), member],
+        box: teamFull ? [...(world.box ?? []), member] : world.box,
+      });
       const evs = [
         { text: `You offer a snack and gentle head pats...`, snapshot: snap, sfx: "select" },
-        { text: `💖 ${enemyF.name} joined your team!`, snapshot: snap, sfx: "victory" },
+        {
+          text: teamFull
+            ? `💖 ${enemyF.name} joined you! Sent to CAT STORAGE.`
+            : `💖 ${enemyF.name} joined your team!`,
+          snapshot: snap, sfx: "jingle:befriend",
+        },
       ];
       setOutcome("caught"); setQueue(evs); setCurrent(null); setPhase("playing");
       advanceWith(evs, "caught");
@@ -1058,7 +1112,7 @@ export default function CatemonBattle() {
           return;
         }
         if (won) {
-          play("victory");
+          setMusicOverride(battleIsBoss.current ? MUSIC.victoryBoss : MUSIC.victoryWild);
           bumpStat("wins");
           unlock("firstwin");
           if (mode === "quick") unlock("quickwin");
@@ -1300,6 +1354,10 @@ export default function CatemonBattle() {
       .catcard .cname { font-size: 7px; color: #22241c; text-align: center; }
       .catcard .ctype { font-size: 6px; color: #8a5a2a; background: #f4e2c0; border: 1px solid #c89a5a;
         border-radius: 3px; padding: 2px 4px; }
+      .gear-cats { display: flex; gap: 6px; justify-content: center; }
+      .gearcat { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 4px;
+        cursor: pointer; opacity: 0.55; }
+      .gearcat.sel { opacity: 1; border-color: #c8742a; }
       .dexcard { cursor: default; }
       .dexcard.seen .cat-photo-wrap img { filter: grayscale(1) brightness(0.45); }
       .dex-unknown { width: 48px; height: 48px; border-radius: 6px; background: #c8c4a8; color: #6a6c58;
@@ -1555,7 +1613,7 @@ export default function CatemonBattle() {
             <div className="rb-hp">HP {run.hp}/{run.maxHp} · SNACKS ×{run.healsLeft} · ¢{run.coins ?? 0}</div>
             <div className="rb-hp">{Object.keys(ITEMS).filter((id) => (run.bag?.[id] ?? 0) > 0).map((id) => `${ITEMS[id].icon}×${run.bag[id]}`).join(" ") || "bag empty"}</div>
           </div>
-          <button className="gearbtn" onClick={() => { setScreen("gear"); play("select"); }}>🎽 GEAR</button>
+          <button className="gearbtn" onClick={() => { setGearTarget("active"); setScreen("gear"); play("select"); }}>🎽 GEAR</button>
         </div>
       </div>
     );
@@ -1621,7 +1679,7 @@ export default function CatemonBattle() {
             {CATS[world.catId].name} LV.{world.level} · HP {world.hp}/{world.maxHp}{world.bench?.length ? ` · 👥+${world.bench.length}` : ""}<br />
             {Object.keys(ITEMS).filter((id) => (world.bag[id] ?? 0) > 0).map((id) => `${ITEMS[id].icon}×${world.bag[id]}`).join(" ") || "bag empty"}
           </div>
-          <button className="gearbtn" onClick={() => { setScreen("gear"); play("select"); }}>🎽 GEAR</button>
+          <button className="gearbtn" onClick={() => { setGearTarget("active"); setScreen("gear"); play("select"); }}>🎽 GEAR</button>
           <div className="world-hint">SWIPE OR<br />ARROWS<br />TO MOVE</div>
         </div>
         {toast && <div className="toast">{toast}</div>}
@@ -1665,7 +1723,13 @@ export default function CatemonBattle() {
         {mode === "world" && (
           <button className="movebtn" onClick={centerHeal}>
             FREE HEAL
-            <small>Full HP + restock snacks</small>
+            <small>Full HP + restock snacks (whole team + storage)</small>
+          </button>
+        )}
+        {mode === "world" && (
+          <button className="movebtn" onClick={() => { setScreen("storage"); play("select"); }}>
+            🐱 CAT STORAGE
+            <small>{(world.box ?? []).length} stored · swap team members</small>
           </button>
         )}
         <div className="shop-section">ITEMS</div>
@@ -1699,12 +1763,76 @@ export default function CatemonBattle() {
         {toast && <div className="toast">{toast}</div>}
       </div>
     );
+  } else if (screen === "storage") {
+    const bench = world.bench ?? [];
+    const box = world.box ?? [];
+    inner = (
+      <div className="center-screen">
+        <div className="center-title">🐱 CAT STORAGE</div>
+        <div className="shop-section">YOUR TEAM ({1 + bench.length}/3)</div>
+        <div className="shop-item">
+          <CatPhoto id={world.catId} size={30} />
+          <div className="si-info">
+            <div className="si-name">{CATS[world.catId].name} · LV.{world.level}</div>
+            <div className="si-desc">HP {world.hp}/{world.maxHp} · ACTIVE</div>
+          </div>
+        </div>
+        {bench.map((m, i) => (
+          <div key={i} className="shop-item">
+            <CatPhoto id={m.catId} size={30} />
+            <div className="si-info">
+              <div className="si-name">{CATS[m.catId].name} · LV.{m.level}</div>
+              <div className="si-desc">HP {m.hp}/{memberMaxHp(m)}</div>
+            </div>
+            <button onClick={() => storeCat(i)}>STORE</button>
+          </div>
+        ))}
+        <div className="shop-section">IN STORAGE ({box.length})</div>
+        {box.length === 0 && <div className="gear-none">no cats stored yet — befriend more wild cats!</div>}
+        {box.map((m, i) => (
+          <div key={i} className="shop-item">
+            <CatPhoto id={m.catId} size={30} />
+            <div className="si-info">
+              <div className="si-name">{CATS[m.catId].name} · LV.{m.level}</div>
+              <div className="si-desc">HP {m.hp}/{memberMaxHp(m)}</div>
+            </div>
+            <button disabled={bench.length >= 2} onClick={() => takeCat(i)}>TAKE</button>
+          </div>
+        ))}
+        <button className="bigbtn small" style={{ marginTop: 8 }} onClick={() => { setScreen("center"); play("select"); }}>
+          BACK
+        </button>
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
   } else if (screen === "gear") {
+    const gearBench = mode === "world" ? adv.bench ?? [] : [];
+    const target = gearTarget !== "active" && !gearBench[gearTarget] ? "active" : gearTarget;
+    const selGear = target === "active" ? adv.gear : gearBench[target].gear ?? {};
+    const selName = target === "active" ? CATS[adv.catId].name : CATS[gearBench[target].catId].name;
+    const wearerName = (id) => {
+      const w = gearWearer(id);
+      if (w === null || w === target) return null;
+      return w === "active" ? CATS[adv.catId].name : CATS[gearBench[w].catId].name;
+    };
     inner = (
       <div className="center-screen">
         <div className="center-title">🎽 GEAR</div>
+        {gearBench.length > 0 && (
+          <div className="gear-cats">
+            <button className={`gearcat ${target === "active" ? "sel" : ""}`} onClick={() => { setGearTarget("active"); play("select"); }}>
+              <CatPhoto id={adv.catId} size={30} />
+            </button>
+            {gearBench.map((m, i) => (
+              <button key={i} className={`gearcat ${target === i ? "sel" : ""}`} onClick={() => { setGearTarget(i); play("select"); }}>
+                <CatPhoto id={m.catId} size={30} />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="center-coins">{selName}{target === "active" ? " (active)" : ""}</div>
         {["collar", "charm"].map((slot) => {
-          const equippedId = adv.gear[slot];
+          const equippedId = selGear[slot];
           const options = adv.gear.owned.filter((id) => EQUIPMENT[id].slot === slot);
           return (
             <div key={slot}>
@@ -1713,20 +1841,22 @@ export default function CatemonBattle() {
               {options.map((id) => {
                 const eq = EQUIPMENT[id];
                 const isOn = equippedId === id;
+                const worn = wearerName(id);
                 return (
                   <div key={id} className="shop-item">
                     <span>{eq.icon}</span>
                     <div className="si-info">
                       <div className="si-name">{eq.name}</div>
-                      <div className="si-desc">{eq.desc}</div>
+                      <div className="si-desc">{eq.desc}{worn ? ` · on ${worn}` : ""}</div>
                     </div>
-                    <button onClick={() => setGearSlot(slot, isOn ? null : id)}>{isOn ? "REMOVE" : "EQUIP"}</button>
+                    <button onClick={() => setGearSlot(target, slot, isOn ? null : id)}>{isOn ? "REMOVE" : "EQUIP"}</button>
                   </div>
                 );
               })}
             </div>
           );
         })}
+        {toast && <div className="toast">{toast}</div>}
         <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen(advScreen); play("select"); }}>
           BACK
         </button>
