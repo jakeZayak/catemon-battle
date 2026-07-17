@@ -129,6 +129,10 @@ export const CATS = {
       { key: "stare", name: "BLANK STARE",  power: 0,  acc: 100, desc: "Raises own DEF.",                fx: { defUp: 1.0 } },
       { key: "why",   name: "???",          power: 80, acc: 85,  desc: "Big confusing damage.",          fx: {} },
     ],
+    learnset: [
+      { at: 4, move: { key: "loudhuh", name: "LOUD HUH?",           power: 55, acc: 95, desc: "A deafening question. May confuse.", fx: { confuse: 0.2 } } },
+      { at: 8, move: { key: "crisis",  name: "EXISTENTIAL CRISIS",  power: 0,  acc: 90, desc: "Foe questions everything. Lowers ATK.", fx: { foeAtkDown: 1.0 } } },
+    ],
   },
   maxwell: {
     id: "maxwell",
@@ -142,6 +146,10 @@ export const CATS = {
       { key: "dance",   name: "DINGUS DANCE",   power: 0,  acc: 100, desc: "Raises own ATK.",               fx: { atkUp: 1.0 } },
       { key: "speaker", name: "SPEAKER BLAST",  power: 55, acc: 100, desc: "Solid, reliable damage.",       fx: {} },
       { key: "wav",     name: "MAXWELL.WAV",    power: 80, acc: 88,  desc: "Full volume. Big damage.",      fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "bassdrop", name: "BASS DROP", power: 60, acc: 95,  desc: "The beat hits. Hard.",                fx: {} } },
+      { at: 8, move: { key: "encore",   name: "ENCORE",    power: 0,  acc: 100, desc: "Crowd goes wild. Raises ATK and SPD.", fx: { atkUp: 1.0, spdUp: 1.0 } } },
     ],
   },
   oiia: {
@@ -157,6 +165,10 @@ export const CATS = {
       { key: "rave",    name: "RAVE MODE",    power: 0,  acc: 100, desc: "Raises own ATK.",               fx: { atkUp: 1.0 } },
       { key: "screech", name: "UIIA SCREECH", power: 58, acc: 95,  desc: "Piercing sound damage.",        fx: {} },
     ],
+    learnset: [
+      { at: 4, move: { key: "gyro",      name: "GYROSCOPE",  power: 0,  acc: 100, desc: "Perfect balance. Raises DEF.",          fx: { defUp: 1.0 } } },
+      { at: 8, move: { key: "sonicspin", name: "SONIC SPIN", power: 82, acc: 90,  desc: "Spins at unsafe speeds. Small recoil.", fx: { recoil: 0.1 } } },
+    ],
   },
   quaso: {
     id: "quaso",
@@ -170,6 +182,10 @@ export const CATS = {
       { key: "uno",    name: "UNO REVERSE",  power: 0,  acc: 85,  desc: "Reflects the foe's move back!",   fx: { reverse: true, priority: true } },
       { key: "bean",   name: "SMOL BEANS",   power: 0,  acc: 100, desc: "Restores 30% max HP.",            fx: { heal: 0.3 } },
       { key: "pounce", name: "POUNCE",       power: 75, acc: 92,  desc: "High-damage leap attack.",        fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "butter", name: "BUTTER UP",   power: 0,  acc: 100, desc: "Slippery and glossy. Raises DEF.", fx: { defUp: 1.0 } } },
+      { at: 8, move: { key: "flaky",  name: "FLAKY FURY",  power: 18, acc: 95,  desc: "Crumbs everywhere. Hits 2-4 times.", fx: { multi: true } } },
     ],
   },
   banana: {
@@ -185,6 +201,10 @@ export const CATS = {
       { key: "happy",   name: "HAPPY HAPPY",   power: 80, acc: 85,  desc: "Pure joy at max volume.",             fx: {} },
       { key: "split",   name: "BANANA SPLIT",  power: 0,  acc: 100, desc: "Eats the banana. Restores 30% HP.",   fx: { heal: 0.3 } },
     ],
+    learnset: [
+      { at: 4, move: { key: "peel",     name: "PEEL SLIP",     power: 45, acc: 100, desc: "A classic. May lower foe ATK.", fx: { foeAtkDown: 0.4 } } },
+      { at: 8, move: { key: "maxhappy", name: "MAXIMUM HAPPY", power: 82, acc: 88,  desc: "Joy overload. Huge damage.",    fx: {} } },
+    ],
   },
   pedro: {
     id: "pedro",
@@ -198,6 +218,10 @@ export const CATS = {
       { key: "shuffle", name: "TRASH SHUFFLE",  power: 0,  acc: 100, desc: "Raises own ATK.",               fx: { atkUp: 1.0 } },
       { key: "spin",    name: "MANDOLIN SPIN",  power: 55, acc: 95,  desc: "Spins with the mandolin.",      fx: {} },
       { key: "finale",  name: "PE-DRO FINALE",  power: 78, acc: 88,  desc: "The song reaches its peak.",    fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "tornado", name: "TRASH TORNADO", power: 55, acc: 95,  desc: "Spins the bins into a cyclone.",   fx: {} } },
+      { at: 8, move: { key: "solo",    name: "MANDOLIN SOLO", power: 0,  acc: 100, desc: "Hypnotic strumming. Raises SPD.",  fx: { spdUp: 1.0 } } },
     ],
   },
   zoned: {
@@ -213,6 +237,10 @@ export const CATS = {
       { key: "snap",   name: "SNAP BACK",       power: 55, acc: 95,  desc: "Suddenly returns to reality.",  fx: {} },
       { key: "buffer", name: "BUFFERING...",    power: 78, acc: 88,  desc: "Loading... loading... BAM.",    fx: {} },
     ],
+    learnset: [
+      { at: 4, move: { key: "grass",    name: "TOUCH GRASS", power: 0,  acc: 100, desc: "Grounding. Restores 30% HP.",  fx: { heal: 0.3 } } },
+      { at: 8, move: { key: "voidgaze", name: "VOID GAZE",   power: 80, acc: 88,  desc: "The void gazes back. May confuse.", fx: { confuse: 0.2 } } },
+    ],
   },
   apple: {
     id: "apple",
@@ -226,6 +254,10 @@ export const CATS = {
       { key: "aday",   name: "APPLE A DAY",     power: 0,  acc: 100, desc: "Keeps the vet away. Heals 30%.",     fx: { heal: 0.3 } },
       { key: "crunch", name: "CRUNCH",          power: 55, acc: 95,  desc: "Crisp, reliable damage.",            fx: {} },
       { key: "fury",   name: "FRUIT FURY",      power: 78, acc: 88,  desc: "Full fruit-powered slam.",           fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "seeds",   name: "SEED SPIT",    power: 17, acc: 95,  desc: "Rapid fire. Hits 2-4 times.",      fx: { multi: true } } },
+      { at: 8, move: { key: "caramel", name: "CARAMEL COAT", power: 0,  acc: 100, desc: "Sticky candy armor. Raises DEF.",  fx: { defUp: 1.0 } } },
     ],
   },
   pipe: {
@@ -241,6 +273,10 @@ export const CATS = {
       { key: "lean",   name: "LEAN ON WALL",    power: 0,  acc: 100, desc: "Braces itself. Raises own DEF.",  fx: { defUp: 1.0 } },
       { key: "drop",   name: "DROPPED!!",       power: 17, acc: 95,  desc: "Bounces 2-4 times.",              fx: { multi: true } },
     ],
+    learnset: [
+      { at: 4, move: { key: "echo", name: "ECHO CLANG",    power: 55, acc: 95, desc: "It rings forever. May confuse.", fx: { confuse: 0.2 } } },
+      { at: 8, move: { key: "slam", name: "SCAFFOLD SLAM", power: 82, acc: 88, desc: "Full structural failure.",       fx: {} } },
+    ],
   },
   stickbug: {
     id: "stickbug",
@@ -254,6 +290,10 @@ export const CATS = {
       { key: "sway",      name: "SWAY DANCE",     power: 0,  acc: 100, desc: "Hypnotic groove. Raises own SPD.",      fx: { spdUp: 1.0 } },
       { key: "twig",      name: "TWIG SNAP",      power: 55, acc: 95,  desc: "Snappy, reliable damage.",              fx: {} },
       { key: "bamboo",    name: "BAMBOO SLAM",    power: 78, acc: 88,  desc: "Full-branch body slam.",                fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "branch", name: "BRANCH OUT",      power: 55, acc: 95,  desc: "Surprise limb from nowhere.",      fx: {} } },
+      { at: 8, move: { key: "photo",  name: "PHOTOSYNTHESIZE", power: 0,  acc: 100, desc: "Soaks the sun. Restores 30% HP.",  fx: { heal: 0.3 } } },
     ],
   },
   sprite: {
@@ -269,6 +309,10 @@ export const CATS = {
       { key: "crush",  name: "CAN CRUSH",     power: 78, acc: 88,  desc: "Crushes it. The foe, specifically.", fx: {} },
       { key: "lemon",  name: "LEMON-LIME",    power: 0,  acc: 100, desc: "Refreshing sip. Restores 30% HP.",   fx: { heal: 0.3 } },
     ],
+    learnset: [
+      { at: 4, move: { key: "bubbles", name: "BUBBLE BARRAGE",  power: 18, acc: 95, desc: "Carbonated chaos. Hits 2-4 times.", fx: { multi: true } } },
+      { at: 8, move: { key: "sugarfree", name: "SUGAR-FREE RAGE", power: 82, acc: 88, desc: "Zero sugar. Full power.",         fx: {} } },
+    ],
   },
   wert: {
     id: "wert",
@@ -283,10 +327,28 @@ export const CATS = {
       { key: "seven", name: "7 SMASH",                  power: 175, acc: 100, desc: "A colossal 7 falls from above.", fx: { overlay: "seven" } },
       { key: "hole",  name: "BLACK HOLE OF DOOM",       power: 999, acc: 100, desc: "Deletes the foe from reality.",  fx: { overlay: "blackhole" } },
     ],
+    learnset: [
+      { at: 4, move: { key: "sixeight", name: "68 SMASH", power: 200, acc: 100, desc: "The number between 6 and 7. Illegal.", fx: {} } },
+      { at: 8, move: { key: "combo41",  name: "41 COMBO", power: 120, acc: 100, desc: "6+7=13... ×pi... = 41. Hits 2-4 times.", fx: { multi: true } } },
+    ],
   },
 };
 
 export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "sprite", "wert"];
+
+/* every move a cat could know at a given level (base 4 + unlocked learnset moves) */
+export const movePool = (catId, level = 99) => {
+  const c = CATS[catId];
+  return [...c.moves, ...(c.learnset ?? []).filter((l) => l.at <= level).map((l) => l.move)];
+};
+
+/* resolve a saved list of move keys back into move objects; falls back to the base 4 */
+export const movesFor = (catId, keys) => {
+  if (!keys?.length) return CATS[catId].moves;
+  const pool = movePool(catId, 99);
+  const out = keys.map((k) => pool.find((m) => m.key === k)).filter(Boolean);
+  return out.length ? out : CATS[catId].moves;
+};
 
 /* wert is a player-only secret weapon — never spawns as an opponent */
 export const ENEMY_IDS = CAT_IDS.filter((id) => id !== "wert");

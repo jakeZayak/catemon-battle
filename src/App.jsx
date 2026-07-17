@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS, MUSIC, JINGLES } from "./cats.js";
+import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS, MUSIC, JINGLES, movePool } from "./cats.js";
 import { newFighter, buildRound, enemyFreeRound, levelMul } from "./battle.js";
 import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses, NPCS, TRAINERS } from "./world.js";
 
@@ -7,10 +7,10 @@ import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, i
    CATÉMON — meme cat battle & adventure
    ============================================================ */
 
-function CatPhoto({ id, size = 96, flip = false, className = "", style = {} }) {
+function CatPhoto({ id, size = 96, flip = false, shiny = false, className = "", style = {} }) {
   return (
     <div
-      className={`cat-photo-wrap ${className}`}
+      className={`cat-photo-wrap ${shiny ? "shiny-cat" : ""} ${className}`}
       style={{
         width: size,
         height: size,
@@ -20,6 +20,7 @@ function CatPhoto({ id, size = 96, flip = false, className = "", style = {} }) {
       }}
     >
       <img src={CAT_IMAGES[id]} alt={id} style={{ objectPosition: CAT_CROP[id] }} />
+      {shiny && <span className="shiny-spark">✨</span>}
     </div>
   );
 }
@@ -46,6 +47,7 @@ const ACHIEVEMENTS = [
   { id: "tower5",     icon: "🗼", name: "OHIO SURVIVOR",     desc: "Reach floor 5 of ENDLESS OHIO" },
   { id: "rich",       icon: "💰", name: "FAT STACKS",        desc: "Hold 200 coins at once" },
   { id: "wertwin",    icon: "7️⃣", name: "SIX SEVEN!!!",      desc: "Win a battle as WERT" },
+  { id: "shiny",      icon: "✨", name: "SHINY HUNTER",      desc: "Befriend a shiny cat" },
 ];
 
 const ZONES = [
@@ -542,7 +544,7 @@ export default function CatemonBattle() {
   };
 
   const playerFighterFrom = (s) =>
-    newFighter(s.catId, { level: s.level, bonuses: totalBonuses(s), hp: s.hp, healsLeft: s.healsLeft });
+    newFighter(s.catId, { level: s.level, bonuses: totalBonuses(s), hp: s.hp, healsLeft: s.healsLeft, moveKeys: s.moves, shiny: s.shiny });
 
   const randomFoeId = (notId) => {
     const others = ENEMY_IDS.filter((c) => c !== notId);
@@ -556,7 +558,7 @@ export default function CatemonBattle() {
     const zone = ZONES[run.zone];
     const e = isBoss
       ? newFighter(wildId, { level: rogueBossLevel(run.zone), name: `${zone.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
-      : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor), statScale: 0.9 });
+      : newFighter(wildId, { level: rogueWildLevel(run.zone, run.floor), statScale: 0.9, shiny: Math.random() < 0.05 });
     beginBattle(p, e, isBoss ? `${e.name} blocks your path!` : `A wild ${e.name} appeared!`);
     if (isBoss) battleMusicRef.current = run.zone === ZONES.length - 1 ? MUSIC.battleFinal : MUSIC.battleBoss;
   };
@@ -577,6 +579,27 @@ export default function CatemonBattle() {
     };
   };
 
+  /* "cat can learn a new move" notice fragment when a level-up crosses a learnset gate */
+  const newMoveNote = (catId, oldLvl, newLvl) =>
+    movePool(catId, newLvl).length > movePool(catId, oldLvl).length
+      ? ` ★ ${CATS[catId].name} can learn a NEW MOVE! (see GEAR & MOVES)`
+      : "";
+
+  /* bench cats earn 1 XP per win; every 2 XP is a level */
+  const benchXpGain = (w) => {
+    let notes = "";
+    const bench = (w.bench ?? []).map((m) => {
+      const xp = (m.xp ?? 0) + 1;
+      if (xp < 2) return { ...m, xp };
+      const m2 = { ...m, level: m.level + 1, xp: 0 };
+      const gain = memberMaxHp(m2) - memberMaxHp(m);
+      m2.hp = m.hp <= 0 ? 0 : Math.min(memberMaxHp(m2), m.hp + Math.max(0, gain));
+      notes += ` ${CATS[m.catId].name} grew to LV.${m2.level} too!` + newMoveNote(m.catId, m.level, m2.level);
+      return m2;
+    });
+    return [{ ...w, bench }, notes];
+  };
+
   const finishRogueBattle = (won, finalPlayer) => {
     if (!won) {
       clearSave(ROGUE_SAVE);
@@ -584,6 +607,7 @@ export default function CatemonBattle() {
       return;
     }
     let r = levelUpState(run, finalPlayer);
+    const learnNote = newMoveNote(run.catId, run.level, r.level);
     const coins = battleIsBoss.current ? 25 : 5 + enemyF.level;
     r = { ...r, coins: (r.coins ?? 0) + coins };
     const catName = CATS[run.catId].name;
@@ -597,11 +621,11 @@ export default function CatemonBattle() {
       }
       r = { ...r, zone: run.zone + 1, floor: 0, map: genZoneMap() };
       setRun(r);
-      showNotice(`ZONE CLEARED! ${catName} grew to LV.${r.level}! Next: ${ZONES[r.zone].name}... (+${coins} coins)`);
+      showNotice(`ZONE CLEARED! ${catName} grew to LV.${r.level}! Next: ${ZONES[r.zone].name}... (+${coins} coins)${learnNote}`);
     } else {
       r = { ...r, floor: run.floor + 1 };
       setRun(r);
-      showNotice(`${catName} grew to LV.${r.level}! Found ${coins} coins!`);
+      showNotice(`${catName} grew to LV.${r.level}! Found ${coins} coins!${learnNote}`);
     }
   };
 
@@ -649,7 +673,7 @@ export default function CatemonBattle() {
     const area = AREAS[world.area];
     const e = isBoss
       ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
-      : newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9 });
+      : newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9, shiny: Math.random() < 0.05 });
     beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
     if (isBoss) battleMusicRef.current = world.area === AREAS.length - 1 ? MUSIC.battleFinal : MUSIC.battleBoss;
   };
@@ -681,14 +705,20 @@ export default function CatemonBattle() {
       const tr = trainerRef.current;
       trainerRef.current = null;
       let w = levelUpState(world, finalPlayer);
+      const learnNote = newMoveNote(world.catId, world.level, w.level);
       w = { ...w, coins: w.coins + tr.reward, beaten: [...(w.beaten ?? []), tr.id] };
+      let benchNotes;
+      [w, benchNotes] = benchXpGain(w);
       setWorld(w);
-      showNotice(`${tr.name}: "${tr.quote}" Won ¢${tr.reward}! ${CATS[world.catId].name} grew to LV.${w.level}!`, "world");
+      showNotice(`${tr.name}: "${tr.quote}" Won ¢${tr.reward}! ${CATS[world.catId].name} grew to LV.${w.level}!${learnNote}${benchNotes}`, "world");
       return;
     }
     let w = levelUpState(world, finalPlayer);
+    const learnNote = newMoveNote(world.catId, world.level, w.level);
     const coins = battleIsBoss.current ? 25 : 5 + enemyF.level;
     w = { ...w, coins: w.coins + coins };
+    let benchNotes;
+    [w, benchNotes] = benchXpGain(w);
     const catName = CATS[world.catId].name;
     if (battleIsBoss.current) {
       if (world.area === AREAS.length - 1) {
@@ -711,10 +741,10 @@ export default function CatemonBattle() {
       const nextArea = world.area + 1;
       const spawn = findTile(AREAS[nextArea].map, "S");
       setWorld({ ...w, area: nextArea, x: spawn.x, y: spawn.y });
-      showNotice(`The gate opens! ${catName} grew to LV.${w.level}!${dropText} Welcome to ${AREAS[nextArea].name}. (+${coins} coins)`, "world");
+      showNotice(`The gate opens! ${catName} grew to LV.${w.level}!${dropText} Welcome to ${AREAS[nextArea].name}. (+${coins} coins)${learnNote}${benchNotes}`, "world");
     } else {
       setWorld(w);
-      showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!`, "world");
+      showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!${learnNote}${benchNotes}`, "world");
     }
   };
 
@@ -971,6 +1001,18 @@ export default function CatemonBattle() {
     setAdv(s2);
   };
 
+  /* replace a team cat's moveset (list of move keys) */
+  const setMoveKeys = (target, keys) => {
+    play("select");
+    if (target === "active") {
+      setAdv({ ...adv, moves: keys });
+    } else {
+      const bench = [...adv.bench];
+      bench[target] = { ...bench[target], moves: keys };
+      setAdv({ ...adv, bench });
+    }
+  };
+
   /* ---------- battle event loop ---------- */
 
   const pickMove = (move) => {
@@ -1005,17 +1047,19 @@ export default function CatemonBattle() {
       catId: playerF.base.id, level: playerF.level,
       bonuses: world.bonuses ?? {}, healsLeft: playerF.healsLeft,
       gear: { collar: world.gear.collar, charm: world.gear.charm }, // each cat keeps its own gear
+      moves: world.moves, shiny: world.shiny, xp: world.benchXp ?? 0,
     };
     outgoing.hp = Math.min(playerF.hp, memberMaxHp(outgoing));
     bench[benchIdx] = outgoing;
     const w2 = {
       ...world, catId: incoming.catId, level: incoming.level, bonuses: incoming.bonuses ?? {}, healsLeft: incoming.healsLeft, bench,
       gear: { ...world.gear, collar: incoming.gear?.collar ?? null, charm: incoming.gear?.charm ?? null },
+      moves: incoming.moves ?? null, shiny: incoming.shiny ?? false, benchXp: incoming.xp ?? 0,
     };
     w2.maxHp = computeMaxHp(w2);
     w2.hp = Math.min(incoming.hp, w2.maxHp);
     setWorld(w2);
-    const pf = newFighter(incoming.catId, { level: incoming.level, bonuses: totalBonuses(w2), hp: w2.hp, healsLeft: incoming.healsLeft });
+    const pf = newFighter(incoming.catId, { level: incoming.level, bonuses: totalBonuses(w2), hp: w2.hp, healsLeft: incoming.healsLeft, moveKeys: incoming.moves, shiny: incoming.shiny });
     setPlayerF(pf);
     setShowCats(false);
     markDex(pf.base.id, "befriended");
@@ -1043,9 +1087,14 @@ export default function CatemonBattle() {
       markDex(enemyF.base.id, "befriended");
       bumpStat("befriended");
       unlock("befriend1");
+      if (enemyF.shiny) {
+        setMeta((m) => ({ ...m, shinies: { ...m.shinies, [enemyF.base.id]: true } }));
+        unlock("shiny");
+      }
       const member = {
         catId: enemyF.base.id, level: enemyF.level, hp: Math.max(1, enemyF.hp),
         bonuses: {}, healsLeft: 2, gear: { collar: null, charm: null },
+        shiny: enemyF.shiny || undefined,
       };
       const teamFull = (world.bench ?? []).length >= 2;
       setWorld({
@@ -1354,6 +1403,11 @@ export default function CatemonBattle() {
       .catcard .cname { font-size: 7px; color: #22241c; text-align: center; }
       .catcard .ctype { font-size: 6px; color: #8a5a2a; background: #f4e2c0; border: 1px solid #c89a5a;
         border-radius: 3px; padding: 2px 4px; }
+      .shiny-cat img { filter: hue-rotate(120deg) saturate(1.45); }
+      .shiny-cat { position: relative; box-shadow: 0 0 8px 2px rgba(246, 200, 96, 0.7); }
+      .shiny-spark { position: absolute; top: -4px; right: -4px; font-size: 12px;
+        animation: sparkle 1.1s ease-in-out infinite; pointer-events: none; }
+      @keyframes sparkle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.35) rotate(20deg); } }
       .gear-cats { display: flex; gap: 6px; justify-content: center; }
       .gearcat { background: #fdfbf0; border: 3px solid #3a3c30; border-radius: 8px; padding: 4px;
         cursor: pointer; opacity: 0.55; }
@@ -1508,7 +1562,7 @@ export default function CatemonBattle() {
             return (
               <div key={id} className={`catcard dexcard ${st ?? "unseen"}`}>
                 {st ? <CatPhoto id={id} size={48} /> : <div className="dex-unknown">?</div>}
-                <span className="cname">{st ? c.name : "???"}</span>
+                <span className="cname">{st ? c.name : "???"}{meta.shinies?.[id] ? " ✨" : ""}</span>
                 <span className="ctype">
                   {st === "befriended" ? `${FAMILY_ICONS[c.family]} ${c.tagline}` : st === "seen" ? "seen in battle" : "not yet met"}
                 </span>
@@ -1657,7 +1711,7 @@ export default function CatemonBattle() {
               return (
                 <div key={`${x}-${y}`} className="tile" style={tileStyle(t)}>
                   {isPlayer ? (
-                    <CatPhoto id={world.catId} size={22} style={{ borderRadius: 3 }} />
+                    <CatPhoto id={world.catId} size={22} shiny={world.shiny} style={{ borderRadius: 3 }} />
                   ) : npcHere ? (
                     <span className="tile-emoji">{npcHere.emoji}</span>
                   ) : trHere ? (
@@ -1771,7 +1825,7 @@ export default function CatemonBattle() {
         <div className="center-title">🐱 CAT STORAGE</div>
         <div className="shop-section">YOUR TEAM ({1 + bench.length}/3)</div>
         <div className="shop-item">
-          <CatPhoto id={world.catId} size={30} />
+          <CatPhoto id={world.catId} size={30} shiny={world.shiny} />
           <div className="si-info">
             <div className="si-name">{CATS[world.catId].name} · LV.{world.level}</div>
             <div className="si-desc">HP {world.hp}/{world.maxHp} · ACTIVE</div>
@@ -1779,7 +1833,7 @@ export default function CatemonBattle() {
         </div>
         {bench.map((m, i) => (
           <div key={i} className="shop-item">
-            <CatPhoto id={m.catId} size={30} />
+            <CatPhoto id={m.catId} size={30} shiny={m.shiny} />
             <div className="si-info">
               <div className="si-name">{CATS[m.catId].name} · LV.{m.level}</div>
               <div className="si-desc">HP {m.hp}/{memberMaxHp(m)}</div>
@@ -1791,7 +1845,7 @@ export default function CatemonBattle() {
         {box.length === 0 && <div className="gear-none">no cats stored yet — befriend more wild cats!</div>}
         {box.map((m, i) => (
           <div key={i} className="shop-item">
-            <CatPhoto id={m.catId} size={30} />
+            <CatPhoto id={m.catId} size={30} shiny={m.shiny} />
             <div className="si-info">
               <div className="si-name">{CATS[m.catId].name} · LV.{m.level}</div>
               <div className="si-desc">HP {m.hp}/{memberMaxHp(m)}</div>
@@ -1815,9 +1869,23 @@ export default function CatemonBattle() {
       if (w === null || w === target) return null;
       return w === "active" ? CATS[adv.catId].name : CATS[gearBench[w].catId].name;
     };
+    const selCatId = target === "active" ? adv.catId : gearBench[target].catId;
+    const selLevel = target === "active" ? adv.level : gearBench[target].level;
+    const selMoves = (target === "active" ? adv.moves : gearBench[target].moves) ?? CATS[selCatId].moves.map((m) => m.key);
+    const fullPool = movePool(selCatId, 99);
+    const unlockedKeys = new Set(movePool(selCatId, selLevel).map((m) => m.key));
+    const toggleMove = (mv, on) => {
+      if (on) {
+        if (selMoves.length <= 1) { showToast("A cat needs at least 1 move!"); return; }
+        setMoveKeys(target, selMoves.filter((k) => k !== mv.key));
+      } else {
+        if (selMoves.length >= 4) { showToast("Max 4 moves — remove one first!"); return; }
+        setMoveKeys(target, [...selMoves, mv.key]);
+      }
+    };
     inner = (
       <div className="center-screen">
-        <div className="center-title">🎽 GEAR</div>
+        <div className="center-title">🎽 GEAR & MOVES</div>
         {gearBench.length > 0 && (
           <div className="gear-cats">
             <button className={`gearcat ${target === "active" ? "sel" : ""}`} onClick={() => { setGearTarget("active"); play("select"); }}>
@@ -1825,7 +1893,7 @@ export default function CatemonBattle() {
             </button>
             {gearBench.map((m, i) => (
               <button key={i} className={`gearcat ${target === i ? "sel" : ""}`} onClick={() => { setGearTarget(i); play("select"); }}>
-                <CatPhoto id={m.catId} size={30} />
+                <CatPhoto id={m.catId} size={30} shiny={m.shiny} />
               </button>
             ))}
           </div>
@@ -1853,6 +1921,22 @@ export default function CatemonBattle() {
                   </div>
                 );
               })}
+            </div>
+          );
+        })}
+        <div className="shop-section">MOVES ({selMoves.length}/4)</div>
+        {fullPool.map((mv) => {
+          const on = selMoves.includes(mv.key);
+          const locked = !unlockedKeys.has(mv.key);
+          const learnAt = CATS[selCatId].learnset?.find((l) => l.move.key === mv.key)?.at;
+          return (
+            <div key={mv.key} className="shop-item" style={locked ? { opacity: 0.5 } : undefined}>
+              <span>{on ? "✅" : locked ? "🔒" : "▫️"}</span>
+              <div className="si-info">
+                <div className="si-name">{mv.name}</div>
+                <div className="si-desc">{locked ? `unlocks at LV.${learnAt}` : mv.desc}</div>
+              </div>
+              {!locked && <button onClick={() => toggleMove(mv, on)}>{on ? "REMOVE" : "ADD"}</button>}
             </div>
           );
         })}
@@ -1954,11 +2038,11 @@ export default function CatemonBattle() {
           <InfoBox f={enemyF} showNum={false} align="enemy" showLv={showLv} />
           <InfoBox f={playerF} showNum={true} align="player" showLv={showLv} />
           <div className={`slot-enemy ${anim.enemy ?? ""} ${fainting === "enemy" ? "fainted-anim" : ""}`}>
-            <CatPhoto id={enemyF.base.id} size={78} />
+            <CatPhoto id={enemyF.base.id} size={78} shiny={enemyF.shiny} />
             {floats.enemy && <div key={floats.enemy.id} className={`dmgfloat ${floats.enemy.kind}`}>{floats.enemy.text}</div>}
           </div>
           <div className={`slot-player ${anim.player ?? ""} ${fainting === "player" ? "fainted-anim" : ""}`}>
-            <CatPhoto id={playerF.base.id} size={100} flip />
+            <CatPhoto id={playerF.base.id} size={100} flip shiny={playerF.shiny} />
             {floats.player && <div key={floats.player.id} className={`dmgfloat ${floats.player.kind}`}>{floats.player.text}</div>}
           </div>
           {unoCard && (

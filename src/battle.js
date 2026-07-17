@@ -1,4 +1,4 @@
-import { CATS, familyMul } from "./cats.js";
+import { CATS, familyMul, movesFor } from "./cats.js";
 
 /* ---------- battle math ---------- */
 
@@ -35,8 +35,9 @@ export function newFighter(catId, opts = {}) {
     base,
     level,
     stats,
-    name: opts.name ?? base.name,
-    moves: [...base.moves, ...(opts.extraMoves ?? [])],
+    name: opts.name ?? (opts.shiny ? `✨ ${base.name}` : base.name),
+    shiny: !!opts.shiny,
+    moves: [...movesFor(catId, opts.moveKeys), ...(opts.extraMoves ?? [])],
     hp: Math.min(opts.hp ?? stats.hp, stats.hp),
     maxHp: stats.hp,
     atkStage: 0,
