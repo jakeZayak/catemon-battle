@@ -158,6 +158,75 @@ const EVENTS = [
   },
 ];
 
+/* ---------- auto-fit scaling: the whole shell scales to fill the screen ---------- */
+
+function useAutoScale(userScale) {
+  const shellRef = useRef(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const measure = () => {
+      const el = shellRef.current;
+      if (!el) return;
+      // offsetWidth/Height are layout sizes — unaffected by the transform itself
+      const fit = Math.min((window.innerWidth - 8) / el.offsetWidth, (window.innerHeight - 8) / el.offsetHeight);
+      setScale(Math.max(0.4, fit * userScale));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, [userScale]);
+  return { shellRef, scale };
+}
+
+/* ---------- gamepad → keyboard bridge (Retroid Pocket & friends) ----------
+   dpad / left stick move in the overworld, A advances battle text — synthesized
+   as KeyboardEvents that the existing window keydown handler already understands. */
+
+function useGamepad() {
+  useEffect(() => {
+    const state = {};
+    const KEYMAP = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: "Enter" };
+    const AXES = [
+      { axis: 0, neg: "ArrowLeft", pos: "ArrowRight" },
+      { axis: 1, neg: "ArrowUp", pos: "ArrowDown" },
+    ];
+    const fire = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    let raf;
+    const loop = (t) => {
+      const gp = navigator.getGamepads?.()?.find?.(Boolean);
+      if (gp) {
+        const check = (id, pressed, key, repeat) => {
+          const s = state[id] ?? (state[id] = { pressed: false, since: 0, last: 0 });
+          if (pressed && !s.pressed) {
+            fire(key);
+            s.since = t;
+            s.last = t;
+          } else if (pressed && repeat && t - s.since > 250 && t - s.last > 150) {
+            fire(key); // hold-to-walk
+            s.last = t;
+          }
+          s.pressed = pressed;
+        };
+        for (const [btn, key] of Object.entries(KEYMAP)) {
+          check(`b${btn}`, !!gp.buttons[btn]?.pressed, key, key !== "Enter");
+        }
+        for (const a of AXES) {
+          const v = gp.axes?.[a.axis] ?? 0;
+          check(`a${a.axis}-`, v < -0.5, a.neg, true);
+          check(`a${a.axis}+`, v > 0.5, a.pos, true);
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+}
+
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
 
 function useSfx() {
@@ -359,6 +428,11 @@ export default function CatemonBattle() {
   const swipeStart = useRef(null);
   const { play, mutedRef, catAudioRef, startMusic, stopMusic, setVolumes, volsRef } = useSfx();
   const [vols, setVols] = useState(() => ({ ...volsRef.current })); // settings-screen mirror
+  const [uiScale, setUiScale] = useState(() =>
+    Math.min(1, Math.max(0.6, parseFloat(localStorage.getItem("catemon-ui-scale") ?? "1")))
+  );
+  const { shellRef, scale } = useAutoScale(uiScale);
+  useGamepad();
   const rng = Math.random;
   const floatId = useRef(0);
   const floatTimers = useRef({});
@@ -1379,8 +1453,12 @@ export default function CatemonBattle() {
   const css = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+      html, body { overscroll-behavior: none; touch-action: manipulation; background: #1a1c22; }
       .cb-root { font-family: 'Press Start 2P', 'Courier New', monospace; -webkit-tap-highlight-color: transparent;
-        background: #1a1c22; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 12px; }
+        background: #1a1c22; height: 100dvh; display: flex; align-items: center; justify-content: center;
+        overflow: hidden;
+        padding: calc(4px + env(safe-area-inset-top)) calc(4px + env(safe-area-inset-right))
+                 calc(4px + env(safe-area-inset-bottom)) calc(4px + env(safe-area-inset-left)); }
       .cb-shell { width: 100%; max-width: 440px; background: #2e3040; border-radius: 18px; padding: 14px 14px 18px;
         box-shadow: 0 8px 0 #14151c, inset 0 2px 0 rgba(255,255,255,0.08); }
       .cb-shell-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 6px; }
@@ -1676,7 +1754,17 @@ export default function CatemonBattle() {
           onChange={(e) => applyVols(vols.music, Number(e.target.value) / 100)}
           onPointerUp={() => play("select")}
         />
-        <div className="gear-none">The ♪ and SOUND buttons up top mute instantly. Volumes save automatically.</div>
+        <div className="shop-section">📐 GAME SIZE — {Math.round(uiScale * 100)}%</div>
+        <input
+          type="range" min="60" max="100" value={Math.round(uiScale * 100)}
+          className="vol-slider"
+          onChange={(e) => {
+            const v = Number(e.target.value) / 100;
+            setUiScale(v);
+            localStorage.setItem("catemon-ui-scale", String(v));
+          }}
+        />
+        <div className="gear-none">The game auto-fits your screen; GAME SIZE shrinks it if you prefer. The ♪ and SOUND buttons up top mute instantly. Everything saves automatically.</div>
         <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("title"); play("select"); }}>
           BACK
         </button>
@@ -2353,7 +2441,7 @@ export default function CatemonBattle() {
   return (
     <div className="cb-root">
       {css}
-      <div className="cb-shell">
+      <div className="cb-shell" ref={shellRef} style={{ transform: `scale(${scale})` }}>
         <div className="cb-shell-top">
           <span className="cb-brand">CATÉMON v3.0</span>
           {screen !== "title" && <button className="cb-menu" onClick={menuButton}>MENU</button>}

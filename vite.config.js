@@ -13,7 +13,7 @@ export default defineConfig({
         description: "Retro meme cat battle adventure",
         theme_color: "#2e3040",
         background_color: "#1a1c22",
-        display: "standalone",
+        display: "fullscreen",
         orientation: "portrait",
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
