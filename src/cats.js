@@ -16,6 +16,11 @@ export const CAT_IMAGES = {
   pipe:   asset("cat_imgs/pipe.webp"),
   stickbug: asset("cat_imgs/stick-bug.gif"),
   sprite: asset("cat_imgs/sprite-cat.jpg"),
+  /* Team Doggit (enemies only) */
+  jackrussell: asset("cat_imgs/jack-russell.gif"),
+  corgi: asset("cat_imgs/corgi.gif"),
+  dogovanni_fake: asset("cat_imgs/dogovanni-fake.png"),
+  dogovanni: asset("cat_imgs/dogovanni.gif"),
 };
 
 // objectPosition to crop each photo nicely in a square container
@@ -32,6 +37,10 @@ export const CAT_CROP = {
   pipe:   "center center",
   stickbug: "center 35%", // frame the bug on the ledge
   sprite: "center center",
+  jackrussell: "center 20%",
+  corgi: "center center",
+  dogovanni_fake: "center 15%",
+  dogovanni: "center center",
 };
 
 // oiia GIF has a solid black background — match the wrapper so it looks clean
@@ -51,6 +60,8 @@ export const CAT_SOUNDS = {
   pipe:   ["sounds/metal-pipe-clang.mp3"].map(asset),
   stickbug: ["sounds/stickbug.mp3"].map(asset),
   sprite: ["sounds/sprite-cat-1.mp3"].map(asset),
+  jackrussell: ["sounds/laughing_jack_russell.mp3"].map(asset),
+  corgi: ["sounds/smiling_corgi.mp3"].map(asset),
 };
 
 /* one-off game sounds */
@@ -58,6 +69,7 @@ export const GAME_SOUNDS = {
   airhorn: asset("sounds/airhorn.mp3"),
   eating:  asset("sounds/eating.mp3"),
   lose:    ["sounds/oof.mp3", "sounds/defeat.mp3"].map(asset),
+  bossMusicMeme: asset("sounds/why-do-i-hear-boss-music.mp3"),
 };
 
 export const HELICOPTER_SOUND = asset("sounds/helicopter-meme.mp3");
@@ -330,6 +342,64 @@ export const CATS = {
     learnset: [
       { at: 4, move: { key: "sixeight", name: "68 SMASH", power: 200, acc: 100, desc: "The number between 6 and 7. Illegal.", fx: {} } },
       { at: 8, move: { key: "combo41",  name: "41 COMBO", power: 120, acc: 100, desc: "6+7=13... ×pi... = 41. Hits 2-4 times.", fx: { multi: true } } },
+    ],
+  },
+
+  /* ---------- TEAM DOGGIT (enemies only — never in CAT_IDS, the dex, or the wild pool) ---------- */
+  jackrussell: {
+    id: "jackrussell",
+    name: "LAUGHING JACK RUSSELL",
+    type: "CACKLE",
+    family: "CHAOS",
+    tagline: "heh... heh... HAHAHA",
+    stats: { hp: 110, atk: 24, def: 20, spd: 26 },
+    moves: [
+      { key: "haha",   name: "HAHAHAHAHA",    power: 0,  acc: 90,  desc: "The laughter gets in your head. Confuses.", fx: { confuse: 1.0 } },
+      { key: "mock",   name: "MOCKING BARK",  power: 45, acc: 100, desc: "Rude. May lower ATK.",                       fx: { foeAtkDown: 0.4 } },
+      { key: "zoom",   name: "ZOOMIES",       power: 55, acc: 95,  desc: "Laps around the room.",                     fx: {} },
+      { key: "punch",  name: "PUNCHLINE",     power: 78, acc: 88,  desc: "The joke lands. Hard.",                     fx: {} },
+    ],
+  },
+  corgi: {
+    id: "corgi",
+    name: "SMILING CORGI",
+    type: "SMILE",
+    family: "GOOFY",
+    tagline: "friendly. TOO friendly.",
+    stats: { hp: 118, atk: 23, def: 24, spd: 18 },
+    moves: [
+      { key: "smile",  name: "AGGRESSIVE SMILE", power: 0,  acc: 90,  desc: "Unsettlingly wide. Confuses.",   fx: { confuse: 1.0 } },
+      { key: "loaf",   name: "LOAF LUNGE",       power: 55, acc: 95,  desc: "A bread-shaped missile.",        fx: {} },
+      { key: "sploot", name: "SPLOOT",           power: 0,  acc: 100, desc: "Immovable. Raises DEF.",         fx: { defUp: 1.0 } },
+      { key: "chomp",  name: "A HECKIN CHOMP",   power: 78, acc: 88,  desc: "Playful. Devastating.",          fx: {} },
+    ],
+  },
+  dogovanni_fake: {
+    id: "dogovanni_fake",
+    name: "DOGOVANNI",
+    type: "BOSS",
+    family: "CLANG",
+    tagline: "leader of Team Doggit",
+    stats: { hp: 124, atk: 25, def: 24, spd: 18 },
+    moves: [
+      { key: "presence", name: "BOSS PRESENCE", power: 0,  acc: 100, desc: "Commands the room. Raises ATK.",  fx: { atkUp: 1.0 } },
+      { key: "shadow",   name: "SHADOW PAW",    power: 60, acc: 95,  desc: "Strikes from the dark.",          fx: {} },
+      { key: "intimid",  name: "INTIMIDATE",    power: 0,  acc: 90,  desc: "A cold stare. Lowers ATK.",       fx: { foeAtkDown: 1.0 } },
+      { key: "decree",   name: "DOGGIT DECREE", power: 80, acc: 88,  desc: "By order of the boss.",           fx: {} },
+    ],
+  },
+  dogovanni: {
+    id: "dogovanni",
+    name: "THE TRUE DOGOVANNI",
+    type: "BREAKFAST",
+    family: "GROOVE",
+    tagline: "dances. swings hashbrowns.",
+    stats: { hp: 138, atk: 27, def: 24, spd: 26 },
+    moves: [
+      { key: "hashswing", name: "HASHBROWN SWING",            power: 70, acc: 95, desc: "Crispy. Golden. Deadly.",          fx: { overlay: "hashbrown" } },
+      { key: "mcsmack",   name: "McSMACK BREAKFAST BEATDOWN", power: 85, acc: 88, desc: "The full value meal of pain.",     fx: { overlay: "hashbrown" } },
+      { key: "groove",    name: "HEDGEHOG GROOVE",            power: 0,  acc: 100, desc: "Dances menacingly. Raises ATK.",  fx: { atkUp: 1.0 } },
+      { key: "quills",    name: "QUILL FLURRY",               power: 18, acc: 95, desc: "Spiky. Hits 2-4 times.",           fx: { multi: true } },
     ],
   },
 };

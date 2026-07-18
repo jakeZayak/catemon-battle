@@ -225,16 +225,37 @@ export const TRAINERS = {
     id: "couchcmdr", x: 12, y: 6, emoji: "🕹️", name: "COUCH COMMANDER",
     intro: "My thumbs are undefeated!", quote: "GG. My thumbs need ice.",
     team: [{ catId: "maxwell", level: 4 }, { catId: "pedro", level: 5 }], reward: 45,
+  }, {
+    id: "doggit1", x: 3, y: 1, emoji: "😆", name: "LAUGHING JACK RUSSELL", doggit: true,
+    intro: "heh... heh... HAHAHA. A cat? In TEAM DOGGIT territory?",
+    quote: "HAHAHA... ha... the boss is gonna hear about this.",
+    team: [{ catId: "jackrussell", level: 5 }], reward: 40,
   }],
   2: [{
     id: "wanderer", x: 12, y: 4, emoji: "🚪", name: "BACKROOMS WANDERER",
     intro: "I've been lost here for years... fight me for directions!", quote: "You... you know the way out?",
     team: [{ catId: "zoned", level: 6 }, { catId: "huh", level: 7 }], reward: 60,
+  }, {
+    id: "doggit2", x: 3, y: 1, emoji: "🙂", name: "SMILING CORGI", doggit: true,
+    intro: "Hello, friend! Team Doggit says these backrooms are OURS. Smile!",
+    quote: "Still smiling. On the inside, crying. Dogovanni won't like this.",
+    team: [{ catId: "corgi", level: 7 }], reward: 50,
+  }],
+  3: [{
+    id: "doggit3", x: 1, y: 3, emoji: "😆", name: "TEAM DOGGIT", doggit: true,
+    intro: "JACK RUSSELL: \"HAHAHA, it's the cat!\" CORGI: \"We brought backup. It's us. We're the backup.\"",
+    quote: "\"Dogovanni will deal with you HIMSELF!\"",
+    team: [{ catId: "jackrussell", level: 9 }, { catId: "corgi", level: 10 }], reward: 70,
   }],
   4: [{
     id: "ohiokid", x: 7, y: 5, emoji: "🧢", name: "OHIO RIZZLER",
     intro: "Only in Ohio do we battle strangers!", quote: "That was NOT very sigma of me.",
     team: [{ catId: "stickbug", level: 9 }, { catId: "pipe", level: 10 }], reward: 80,
+  }, {
+    id: "doggit4", x: 1, y: 4, emoji: "🙂", name: "TEAM DOGGIT", doggit: true,
+    intro: "CORGI: \"This time it's personal.\" JACK RUSSELL: \"HAHAHA... no more laughing. Okay maybe a little.\"",
+    quote: "\"The boss is waiting for you in SPACE. Good luck. You'll need it. HAHAHA.\"",
+    team: [{ catId: "jackrussell", level: 12 }, { catId: "corgi", level: 13 }], reward: 90,
   }],
 };
 
