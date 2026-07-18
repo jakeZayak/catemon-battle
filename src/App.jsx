@@ -199,41 +199,44 @@ function useAutoScale(userScale) {
 }
 
 /* ---------- gamepad → keyboard bridge (Retroid Pocket & friends) ----------
-   dpad / left stick move in the overworld, A advances battle text — synthesized
-   as KeyboardEvents that the existing window keydown handler already understands. */
+   dpad / left stick / A / B / Start are synthesized as keydown+keyup pairs so the
+   app can treat pad and keyboard identically (held-walk, menu cursor, back, settings).
+   Returns whether a gamepad is currently connected (used to hide touch-only UI). */
 
 function useGamepad() {
+  const [padActive, setPadActive] = useState(false);
   useEffect(() => {
     const state = {};
-    const KEYMAP = { 12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight", 0: "Enter" };
+    const KEYMAP = {
+      12: "ArrowUp", 13: "ArrowDown", 14: "ArrowLeft", 15: "ArrowRight",
+      0: "Enter", 1: "Escape", 9: "GamepadStart",
+    };
     const AXES = [
       { axis: 0, neg: "ArrowLeft", pos: "ArrowRight" },
       { axis: 1, neg: "ArrowUp", pos: "ArrowDown" },
     ];
-    const fire = (key) => window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    const fire = (type, key) => window.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
     let raf;
-    const loop = (t) => {
+    let connected = false;
+    const loop = () => {
       const gp = navigator.getGamepads?.()?.find?.(Boolean);
+      if (!!gp !== connected) {
+        connected = !!gp;
+        setPadActive(connected);
+      }
       if (gp) {
-        const check = (id, pressed, key, repeat) => {
-          const s = state[id] ?? (state[id] = { pressed: false, since: 0, last: 0 });
-          if (pressed && !s.pressed) {
-            fire(key);
-            s.since = t;
-            s.last = t;
-          } else if (pressed && repeat && t - s.since > 250 && t - s.last > 150) {
-            fire(key); // hold-to-walk
-            s.last = t;
-          }
-          s.pressed = pressed;
+        const check = (id, pressed, key) => {
+          if (pressed && !state[id]) fire("keydown", key);
+          else if (!pressed && state[id]) fire("keyup", key);
+          state[id] = pressed;
         };
         for (const [btn, key] of Object.entries(KEYMAP)) {
-          check(`b${btn}`, !!gp.buttons[btn]?.pressed, key, key !== "Enter");
+          check(`b${btn}`, !!gp.buttons[btn]?.pressed, key);
         }
         for (const a of AXES) {
           const v = gp.axes?.[a.axis] ?? 0;
-          check(`a${a.axis}-`, v < -0.5, a.neg, true);
-          check(`a${a.axis}+`, v > 0.5, a.pos, true);
+          check(`a${a.axis}-`, v < -0.5, a.neg);
+          check(`a${a.axis}+`, v > 0.5, a.pos);
         }
       }
       raf = requestAnimationFrame(loop);
@@ -241,6 +244,133 @@ function useGamepad() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
+  return padActive;
+}
+
+/* ---------- menu cursor (play the whole game on a d-pad) ----------
+   A DOM-driven spatial cursor: arrows highlight the nearest button/slider in that
+   direction, Enter/A clicks it, Escape/B clicks the obvious "back" button. Active
+   on every screen except the overworld (there, arrows walk) unless an overlay is up.
+   When an overlay (.confirm-overlay) is open, only its controls are candidates. */
+
+function useCursorNav(screen, padActive) {
+  useEffect(() => {
+    let cursor = null;
+
+    const scope = () => {
+      const overlays = document.querySelectorAll(".confirm-overlay");
+      return overlays.length ? overlays[overlays.length - 1] : document;
+    };
+    const navActive = () => screen !== "world" || !!document.querySelector(".confirm-overlay");
+    const candidates = () =>
+      [...scope().querySelectorAll("button, input[type=range]")].filter(
+        (el) => !el.disabled && el.offsetParent !== null && !el.classList.contains("gear-fab")
+      );
+    const clearCursor = () => {
+      cursor?.classList.remove("gp-cursor");
+      cursor = null;
+    };
+    const setCursor = (el) => {
+      clearCursor();
+      cursor = el;
+      el.classList.add("gp-cursor");
+      el.scrollIntoView?.({ block: "nearest" });
+    };
+    const firstCandidate = (els) =>
+      [...els].sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        return ra.top - rb.top || ra.left - rb.left;
+      })[0];
+
+    const moveCursor = (key, els) => {
+      if (!cursor || !els.includes(cursor)) {
+        const f = firstCandidate(els);
+        if (f) setCursor(f);
+        return;
+      }
+      const from = cursor.getBoundingClientRect();
+      const fx = from.left + from.width / 2;
+      const fy = from.top + from.height / 2;
+      let best = null;
+      let bestScore = Infinity;
+      for (const el of els) {
+        if (el === cursor) continue;
+        const r = el.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const dx = cx - fx;
+        const dy = cy - fy;
+        let primary; let ortho;
+        if (key === "ArrowUp") { primary = -dy; ortho = Math.abs(dx); }
+        else if (key === "ArrowDown") { primary = dy; ortho = Math.abs(dx); }
+        else if (key === "ArrowLeft") { primary = -dx; ortho = Math.abs(dy); }
+        else { primary = dx; ortho = Math.abs(dy); }
+        if (primary < 4) continue; // must actually be in that direction
+        const score = primary + ortho * 2;
+        if (score < bestScore) { bestScore = score; best = el; }
+      }
+      if (best) setCursor(best);
+    };
+
+    const nudgeSlider = (el, dir) => {
+      const step = 10;
+      const next = Math.max(Number(el.min || 0), Math.min(Number(el.max || 100), Number(el.value) + dir * step));
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(el, String(next));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        const back = candidates().find((b) =>
+          /^(◀|NO$|BACK|GOT IT|CLOSE|✕)/.test((b.textContent ?? "").trim().toUpperCase())
+        );
+        if (back) { e.preventDefault(); back.click(); }
+        return;
+      }
+      if (!navActive()) { clearCursor(); return; }
+      const arrows = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+      if (arrows.includes(e.key)) {
+        if (e.repeat) { e.preventDefault(); return; }
+        const els = candidates();
+        if (!els.length) return;
+        e.preventDefault();
+        // left/right on a highlighted slider adjusts it instead of moving away
+        if (cursor && els.includes(cursor) && cursor.tagName === "INPUT" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+          nudgeSlider(cursor, e.key === "ArrowRight" ? 1 : -1);
+          return;
+        }
+        moveCursor(e.key, els);
+      } else if (e.key === "Enter") {
+        const els = candidates();
+        if (cursor && els.includes(cursor)) {
+          e.preventDefault();
+          if (cursor.tagName === "BUTTON") cursor.click();
+        } else if (els.length && !document.querySelector(".textbox")) {
+          // first A press on a fresh menu just picks up the cursor
+          e.preventDefault();
+          setCursor(firstCandidate(els));
+        }
+      }
+    };
+
+    // when a pad is plugged in, show the cursor as soon as a menu appears
+    let raf;
+    if (padActive) {
+      raf = requestAnimationFrame(() => {
+        if (!navActive()) return;
+        const els = candidates();
+        if (els.length) setCursor(firstCandidate(els));
+      });
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("keydown", onKey);
+      clearCursor();
+    };
+  }, [screen, padActive]);
 }
 
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
@@ -363,6 +493,33 @@ function useSfx() {
     });
   }, []);
 
+  /* music politely stops when the app is backgrounded / loses focus, and picks
+     back up on return — only if it was actually playing when we left */
+  useEffect(() => {
+    let pausedByBlur = false;
+    const pause = () => {
+      const a = musicRef.current.audio;
+      if (a && !a.paused) {
+        a.pause();
+        pausedByBlur = true;
+      }
+    };
+    const resume = () => {
+      const a = musicRef.current.audio;
+      if (a && pausedByBlur && musicRef.current.src) a.play().catch(() => {});
+      pausedByBlur = false;
+    };
+    const onVis = () => (document.visibilityState === "hidden" ? pause() : resume());
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("blur", pause);
+    window.addEventListener("focus", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("blur", pause);
+      window.removeEventListener("focus", resume);
+    };
+  }, []);
+
   return { play, mutedRef, catAudioRef, startMusic, stopMusic, setVolumes, volsRef };
 }
 
@@ -469,7 +626,18 @@ export default function CatemonBattle() {
     Math.min(1, Math.max(0.6, parseFloat(localStorage.getItem("catemon-ui-scale") ?? "1")))
   );
   const { shellRef, scale, fillHeight } = useAutoScale(uiScale);
-  useGamepad();
+  const padActive = useGamepad();
+  const [showSettings, setShowSettings] = useState(false);
+  // include the battle phase so the cursor re-homes when the move menu appears
+  useCursorNav(screen === "battle" ? `battle-${phase}` : screen, padActive);
+  // Start button (or Esc alternatives handled in useCursorNav) toggles the settings overlay
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key === "GamepadStart") setShowSettings((s) => !s);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
   const [isFs, setIsFs] = useState(false);
   useEffect(() => {
     const onFs = () => setIsFs(!!document.fullscreenElement);
@@ -1045,7 +1213,7 @@ export default function CatemonBattle() {
   };
 
   const tryMove = useCallback((dx, dy) => {
-    if (screen !== "world" || confirm || npcDialog) return;
+    if (screen !== "world" || confirm || npcDialog || showSettings) return;
     setWorld((w) => {
       if (!w) return w;
       const map = AREAS[w.area].map;
@@ -1112,25 +1280,55 @@ export default function CatemonBattle() {
       }
       return next;
     });
-  }, [screen, confirm, npcDialog, play]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [screen, confirm, npcDialog, showSettings, play]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* keyboard: overworld movement + battle advance */
+  /* keyboard: overworld movement (tap = one step, hold = keep walking) + battle advance */
+  const heldDirs = useRef(new Map()); // key -> [dx,dy], most recent press last
   useEffect(() => {
-    const h = (e) => {
-      if (screen === "world") {
-        const k = e.key.toLowerCase();
-        if (k === "arrowup" || k === "w") { e.preventDefault(); tryMove(0, -1); }
-        if (k === "arrowdown" || k === "s") { e.preventDefault(); tryMove(0, 1); }
-        if (k === "arrowleft" || k === "a") { e.preventDefault(); tryMove(-1, 0); }
-        if (k === "arrowright" || k === "d") { e.preventDefault(); tryMove(1, 0); }
+    const DIRS = {
+      arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1],
+      arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0],
+    };
+    const down = (e) => {
+      if (e.defaultPrevented) return; // the menu cursor claimed this key
+      const k = e.key.toLowerCase();
+      if (screen === "world" && DIRS[k]) {
+        e.preventDefault();
+        // first press steps immediately; the stepper below owns the repeat cadence
+        if (!e.repeat && !heldDirs.current.has(k)) {
+          heldDirs.current.set(k, DIRS[k]);
+          tryMove(...DIRS[k]);
+        }
+        return;
       }
       if (e.key === "Enter" || e.key === " ") {
         if (screen === "battle" && phase !== "command" && !confirm) onAdvance();
       }
     };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    const up = (e) => heldDirs.current.delete(e.key.toLowerCase());
+    const clear = () => heldDirs.current.clear();
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", clear);
+    };
   });
+
+  /* hold-to-walk: while a direction key (or d-pad button) is held, keep stepping */
+  useEffect(() => {
+    if (screen !== "world") {
+      heldDirs.current.clear();
+      return;
+    }
+    const iv = setInterval(() => {
+      const dirs = [...heldDirs.current.values()];
+      if (dirs.length) tryMove(...dirs[dirs.length - 1]);
+    }, 140);
+    return () => clearInterval(iv);
+  }, [screen, tryMove]);
 
   /* ---------- center (heal + shop) ---------- */
 
@@ -1505,27 +1703,30 @@ export default function CatemonBattle() {
         touch-action: manipulation; background: #1a1c22; }
       /* fill mode (portrait screens): the shell stretches to cover the whole screen */
       .cb-shell.fill { display: flex; flex-direction: column; }
-      .cb-shell.fill .screen { flex: 1; aspect-ratio: auto; min-height: 0; }
-      /* fullscreen / installed app: drop the handheld bezel so the game IS the screen */
-      .cb-root.fs { padding: 0; }
-      .cb-root.fs .cb-shell { border-radius: 0; box-shadow: none; padding: 4px; }
-      @media (display-mode: fullscreen), (display-mode: standalone) {
-        .cb-root { padding: 0; }
-        .cb-shell { border-radius: 0; box-shadow: none; padding: 4px; }
-      }
+      .cb-shell.fill .screen { flex: 1; aspect-ratio: auto; min-height: 0; border: none; border-radius: 0; }
       .cb-root { font-family: 'Press Start 2P', 'Courier New', monospace; -webkit-tap-highlight-color: transparent;
         background: #1a1c22; height: 100dvh; display: flex; align-items: center; justify-content: center;
         overflow: hidden;
-        padding: calc(4px + env(safe-area-inset-top)) calc(4px + env(safe-area-inset-right))
-                 calc(4px + env(safe-area-inset-bottom)) calc(4px + env(safe-area-inset-left)); }
-      .cb-shell { width: 100%; max-width: 440px; background: #2e3040; border-radius: 18px; padding: 14px 14px 18px;
-        box-shadow: 0 8px 0 #14151c, inset 0 2px 0 rgba(255,255,255,0.08); }
-      .cb-shell-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 6px; }
-      .cb-brand { color: #8a8ea6; font-size: 8px; letter-spacing: 1px; flex: 1; }
-      .cb-mute, .cb-menu { background: #1e2028; color: #b8bcd0; border: 2px solid #4a4d62; border-radius: 6px;
-        font-family: inherit; font-size: 8px; padding: 6px 8px; cursor: pointer; }
-      .screen { background: #f4f2e2; border: 4px solid #14151c; border-radius: 8px; overflow: hidden;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right)
+                 env(safe-area-inset-bottom) env(safe-area-inset-left); }
+      /* frameless: the shell is just the screen — no bezel, no header */
+      .cb-shell { width: 100%; max-width: 440px; background: none; border-radius: 0; padding: 0; }
+      .screen { background: #f4f2e2; border: 3px solid #14151c; border-radius: 8px; overflow: hidden;
         aspect-ratio: 10 / 11; display: flex; flex-direction: column; position: relative; }
+      /* floating translucent settings button (touch devices; pads use Start) */
+      .gear-fab { position: absolute; top: 6px; right: 6px; z-index: 60; width: 34px; height: 34px;
+        border-radius: 50%; border: none; background: rgba(20,21,28,0.3); color: rgba(255,255,255,0.8);
+        font-size: 16px; line-height: 1; opacity: 0.55; cursor: pointer; padding: 0; }
+      .gear-fab:active { opacity: 1; background: rgba(20,21,28,0.7); }
+      /* d-pad menu cursor */
+      .gp-cursor { outline: 3px solid #ffd23e !important; outline-offset: 2px;
+        box-shadow: 0 0 0 6px rgba(255,210,62,0.28) !important; }
+      .settings-card { width: 88%; max-width: 340px; display: flex; flex-direction: column; gap: 8px; }
+      .settings-title { font-size: 10px; color: #22241c; text-align: center; margin-bottom: 2px; }
+      .settings-row { display: flex; align-items: center; gap: 8px; }
+      .settings-row .bigbtn { flex: 0 0 46%; }
+      .settings-row .vol-slider { flex: 1; min-width: 0; }
+      .settings-label { font-size: 7px; color: #22241c; flex: 0 0 46%; }
       .arena { flex: 1; position: relative; background: linear-gradient(#dfe8d0 62%, #c8d8b0 62%); padding: 8px; }
       .platform { position: absolute; background: #b0c494; border-radius: 50%; opacity: 0.8; }
       .plat-enemy { width: 34%; height: 7%; right: 6%; top: 34%; }
@@ -1789,44 +1990,7 @@ export default function CatemonBattle() {
         <button className="bigbtn small" onClick={() => { setScreen("trophies"); play("select"); }}>
           🏆 TROPHIES {Object.keys(meta.ach ?? {}).length}/{ACHIEVEMENTS.length}
         </button>
-        <button className="bigbtn small" onClick={() => { setScreen("settings"); play("select"); }}>⚙️ SETTINGS</button>
-      </div>
-    );
-  } else if (screen === "settings") {
-    const applyVols = (music, sfx) => {
-      setVols({ music, sfx });
-      setVolumes(music, sfx);
-    };
-    inner = (
-      <div className="center-screen">
-        <div className="center-title">⚙️ SETTINGS</div>
-        <div className="shop-section">🎵 MUSIC VOLUME — {Math.round(vols.music * 100)}%</div>
-        <input
-          type="range" min="0" max="100" value={Math.round(vols.music * 100)}
-          className="vol-slider"
-          onChange={(e) => applyVols(Number(e.target.value) / 100, vols.sfx)}
-        />
-        <div className="shop-section">🔊 SOUND VOLUME — {Math.round(vols.sfx * 100)}%</div>
-        <input
-          type="range" min="0" max="100" value={Math.round(vols.sfx * 100)}
-          className="vol-slider"
-          onChange={(e) => applyVols(vols.music, Number(e.target.value) / 100)}
-          onPointerUp={() => play("select")}
-        />
-        <div className="shop-section">📐 GAME SIZE — {Math.round(uiScale * 100)}%</div>
-        <input
-          type="range" min="60" max="100" value={Math.round(uiScale * 100)}
-          className="vol-slider"
-          onChange={(e) => {
-            const v = Number(e.target.value) / 100;
-            setUiScale(v);
-            localStorage.setItem("catemon-ui-scale", String(v));
-          }}
-        />
-        <div className="gear-none">The game auto-fits your screen; GAME SIZE shrinks it if you prefer. The ♪ and SOUND buttons up top mute instantly. Everything saves automatically.</div>
-        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("title"); play("select"); }}>
-          BACK
-        </button>
+        <button className="bigbtn small" onClick={() => { setShowSettings(true); play("select"); }}>⚙️ SETTINGS</button>
       </div>
     );
   } else if (screen === "trophies") {
@@ -2505,17 +2669,78 @@ export default function CatemonBattle() {
         ref={shellRef}
         style={{ transform: `scale(${scale})`, height: fillHeight ?? undefined }}
       >
-        <div className="cb-shell-top">
-          <span className="cb-brand">CATÉMON v3.0</span>
-          {screen !== "title" && <button className="cb-menu" onClick={menuButton}>MENU</button>}
-          {typeof document !== "undefined" && document.fullscreenEnabled && (
-            <button className="cb-mute" onClick={toggleFullscreen}>{isFs ? "⛶ EXIT" : "⛶ FULL"}</button>
-          )}
-          <button className="cb-mute" onClick={() => setMusicOn((m) => !m)}>{musicOn ? "♪ ON" : "♪ OFF"}</button>
-          <button className="cb-mute" onClick={() => setMuted((m) => !m)}>{muted ? "SOUND: OFF" : "SOUND: ON"}</button>
-        </div>
         <div className="screen">
           {inner}
+          {!padActive && !showSettings && (
+            <button className="gear-fab" onClick={() => { setShowSettings(true); play("select"); }} aria-label="settings">⚙</button>
+          )}
+          {showSettings && (
+            <div className="confirm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+              <div className="confirm-card settings-card">
+                <div className="settings-title">⚙️ SETTINGS</div>
+                <div className="settings-row">
+                  <button className="bigbtn small" onClick={() => { setMusicOn((m) => !m); play("select"); }}>
+                    {musicOn ? "🎵 MUSIC: ON" : "🎵 MUSIC: OFF"}
+                  </button>
+                  <input
+                    type="range" min="0" max="100" value={Math.round(vols.music * 100)}
+                    className="vol-slider"
+                    onChange={(e) => {
+                      const v = Number(e.target.value) / 100;
+                      setVols({ music: v, sfx: vols.sfx });
+                      setVolumes(v, vols.sfx);
+                    }}
+                  />
+                </div>
+                <div className="settings-row">
+                  <button className="bigbtn small" onClick={() => { setMuted((m) => !m); play("select"); }}>
+                    {muted ? "🔊 SOUND: OFF" : "🔊 SOUND: ON"}
+                  </button>
+                  <input
+                    type="range" min="0" max="100" value={Math.round(vols.sfx * 100)}
+                    className="vol-slider"
+                    onChange={(e) => {
+                      const v = Number(e.target.value) / 100;
+                      setVols({ music: vols.music, sfx: v });
+                      setVolumes(vols.music, v);
+                    }}
+                    onPointerUp={() => play("select")}
+                  />
+                </div>
+                <div className="settings-row">
+                  <span className="settings-label">📐 SIZE {Math.round(uiScale * 100)}%</span>
+                  <input
+                    type="range" min="60" max="100" value={Math.round(uiScale * 100)}
+                    className="vol-slider"
+                    onChange={(e) => {
+                      const v = Number(e.target.value) / 100;
+                      setUiScale(v);
+                      localStorage.setItem("catemon-ui-scale", String(v));
+                    }}
+                  />
+                </div>
+                {typeof document !== "undefined" && document.fullscreenEnabled && (
+                  <button className="bigbtn small" onClick={toggleFullscreen}>
+                    {isFs ? "⛶ EXIT FULL SCREEN" : "⛶ FULL SCREEN"}
+                  </button>
+                )}
+                {(screen === "world" || screen === "map") && (
+                  <button
+                    className="bigbtn small"
+                    onClick={() => { setShowSettings(false); setGearTarget("active"); setScreen("gear"); play("select"); }}
+                  >
+                    🎽 GEAR & MOVES
+                  </button>
+                )}
+                {screen !== "title" && (
+                  <button className="bigbtn small alt" onClick={() => { setShowSettings(false); menuButton(); }}>
+                    🏠 QUIT TO TITLE
+                  </button>
+                )}
+                <button className="bigbtn small" onClick={() => { setShowSettings(false); play("select"); }}>CLOSE</button>
+              </div>
+            </div>
+          )}
           {showChart && (
             <div className="confirm-overlay" onClick={() => setShowChart(false)}>
               <div className="confirm-card">
