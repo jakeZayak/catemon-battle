@@ -165,6 +165,17 @@ function useSfx() {
   const mutedRef = useRef(false);
   const catAudioRef = useRef(null);
   const musicRef = useRef({ audio: null, src: null });
+  const volsRef = useRef({
+    music: Math.min(1, Math.max(0, parseFloat(localStorage.getItem("catemon-vol-music") ?? "0.45"))),
+    sfx: Math.min(1, Math.max(0, parseFloat(localStorage.getItem("catemon-vol-sfx") ?? "1"))),
+  });
+
+  const setVolumes = useCallback((music, sfx) => {
+    volsRef.current = { music, sfx };
+    localStorage.setItem("catemon-vol-music", String(music));
+    localStorage.setItem("catemon-vol-sfx", String(sfx));
+    if (musicRef.current.audio) musicRef.current.audio.volume = music;
+  }, []);
 
   const play = useCallback((kind) => {
     if (mutedRef.current) return;
@@ -172,6 +183,7 @@ function useSfx() {
     const playFile = (src) => {
       if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
       const audio = new Audio(src);
+      audio.volume = volsRef.current.sfx;
       catAudioRef.current = audio;
       audio.play().catch(() => {});
     };
@@ -204,7 +216,7 @@ function useSfx() {
         const g = ctx.createGain();
         o.type = type;
         o.frequency.setValueAtTime(freq, now + t0);
-        g.gain.setValueAtTime(vol, now + t0);
+        g.gain.setValueAtTime(Math.max(0.0001, vol * volsRef.current.sfx), now + t0);
         g.gain.exponentialRampToValueAtTime(0.001, now + t0 + dur);
         o.connect(g).connect(ctx.destination);
         o.start(now + t0);
@@ -239,13 +251,13 @@ function useSfx() {
     musicRef.current.audio?.pause();
     const audio = new Audio(src);
     audio.loop = true;
-    audio.volume = 0.45;
+    audio.volume = volsRef.current.music;
     musicRef.current = { audio, src };
     window.__catemonMusic = src; // test hook
     audio.play().catch(() => {});
   }, []);
 
-  return { play, mutedRef, catAudioRef, startMusic, stopMusic };
+  return { play, mutedRef, catAudioRef, startMusic, stopMusic, setVolumes, volsRef };
 }
 
 /* ---------- UI components ---------- */
@@ -345,7 +357,8 @@ export default function CatemonBattle() {
   const enemyBenchRef = useRef([]);    // trainer's remaining cats
   const toastTimer = useRef(null);
   const swipeStart = useRef(null);
-  const { play, mutedRef, catAudioRef, startMusic, stopMusic } = useSfx();
+  const { play, mutedRef, catAudioRef, startMusic, stopMusic, setVolumes, volsRef } = useSfx();
+  const [vols, setVols] = useState(() => ({ ...volsRef.current })); // settings-screen mirror
   const rng = Math.random;
   const floatId = useRef(0);
   const floatTimers = useRef({});
@@ -1413,6 +1426,7 @@ export default function CatemonBattle() {
       .msg { font-size: 10px; line-height: 1.8; color: #22241c; }
       .matchup { font-size: 6px; color: #6a6c58; background: #f0ecd8; border: 1px solid #c8c4a8;
         border-radius: 4px; padding: 3px 5px; margin-bottom: 6px; line-height: 1.7; }
+      .vol-slider { width: 100%; accent-color: #c8742a; height: 22px; cursor: pointer; }
       .continue { align-self: flex-end; font-size: 10px; color: #c8742a; animation: bob 0.8s steps(2) infinite; }
       @keyframes bob { 50% { transform: translateY(3px); } }
       .movegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
@@ -1623,6 +1637,34 @@ export default function CatemonBattle() {
         </button>
         <button className="bigbtn small" onClick={() => { setScreen("trophies"); play("select"); }}>
           🏆 TROPHIES {Object.keys(meta.ach ?? {}).length}/{ACHIEVEMENTS.length}
+        </button>
+        <button className="bigbtn small" onClick={() => { setScreen("settings"); play("select"); }}>⚙️ SETTINGS</button>
+      </div>
+    );
+  } else if (screen === "settings") {
+    const applyVols = (music, sfx) => {
+      setVols({ music, sfx });
+      setVolumes(music, sfx);
+    };
+    inner = (
+      <div className="center-screen">
+        <div className="center-title">⚙️ SETTINGS</div>
+        <div className="shop-section">🎵 MUSIC VOLUME — {Math.round(vols.music * 100)}%</div>
+        <input
+          type="range" min="0" max="100" value={Math.round(vols.music * 100)}
+          className="vol-slider"
+          onChange={(e) => applyVols(Number(e.target.value) / 100, vols.sfx)}
+        />
+        <div className="shop-section">🔊 SOUND VOLUME — {Math.round(vols.sfx * 100)}%</div>
+        <input
+          type="range" min="0" max="100" value={Math.round(vols.sfx * 100)}
+          className="vol-slider"
+          onChange={(e) => applyVols(vols.music, Number(e.target.value) / 100)}
+          onPointerUp={() => play("select")}
+        />
+        <div className="gear-none">The ♪ and SOUND buttons up top mute instantly. Volumes save automatically.</div>
+        <button className="bigbtn small" style={{ marginTop: "auto" }} onClick={() => { setScreen("title"); play("select"); }}>
+          BACK
         </button>
       </div>
     );
