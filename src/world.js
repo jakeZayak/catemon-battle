@@ -218,6 +218,41 @@ export const NPCS = {
   }],
 };
 
+/* ---------- Team Doggit gate bosses (areas 0-4; area 5 is the Dogovanni finale) ---------- */
+
+export const DOGGIT_GATES = [
+  {
+    name: "LAUGHING JACK RUSSELL", emoji: "😆", reward: 30,
+    team: [{ catId: "jackrussell", level: 4 }],
+    intro: `😆 LAUGHING JACK RUSSELL: "heh... heh... HAHAHA! Team Doggit runs this kitchen. Turn around, cat!"`,
+    quote: `"HAHAHA... ha... the boss is NOT gonna like this."`,
+  },
+  {
+    name: "SMILING CORGI", emoji: "🙂", reward: 40,
+    team: [{ catId: "corgi", level: 6 }],
+    intro: `🙂 SMILING CORGI: "Hello, friend! This gate belongs to Team Doggit. Smile and go home!"`,
+    quote: `"Still smiling. Crying a little, but smiling."`,
+  },
+  {
+    name: "TEAM DOGGIT", emoji: "😆", reward: 55,
+    team: [{ catId: "jackrussell", level: 8 }, { catId: "corgi", level: 9 }],
+    intro: `😆 JACK RUSSELL: "You again?! HAHAHA!" 🙂 CORGI: "We practiced. We're a DUO now."`,
+    quote: `"We're telling Dogovanni about this!"`,
+  },
+  {
+    name: "TEAM DOGGIT", emoji: "🙂", reward: 70,
+    team: [{ catId: "jackrussell", level: 11 }, { catId: "corgi", level: 12 }],
+    intro: `🙂 CORGI: "The garden gate is CLOSED." 😆 JACK RUSSELL: "HAHAHA— I mean yeah. Closed. Forever."`,
+    quote: `"Dogovanni will deal with you HIMSELF!"`,
+  },
+  {
+    name: "TEAM DOGGIT", emoji: "😤", reward: 85,
+    team: [{ catId: "jackrussell", level: 13 }, { catId: "corgi", level: 14 }],
+    intro: `😤 JACK RUSSELL: "No more laughing." CORGI: "No more smiling. This is our LAST STAND!"`,
+    quote: `"...the boss is waiting in SPACE. You're doomed. Nice moves though."`,
+  },
+];
+
 /* ---------- trainers: one-time battles against a 2-cat team ---------- */
 
 export const TRAINERS = {
@@ -225,37 +260,16 @@ export const TRAINERS = {
     id: "couchcmdr", x: 12, y: 6, emoji: "🕹️", name: "COUCH COMMANDER",
     intro: "My thumbs are undefeated!", quote: "GG. My thumbs need ice.",
     team: [{ catId: "maxwell", level: 4 }, { catId: "pedro", level: 5 }], reward: 45,
-  }, {
-    id: "doggit1", x: 3, y: 1, emoji: "😆", name: "LAUGHING JACK RUSSELL", doggit: true,
-    intro: "heh... heh... HAHAHA. A cat? In TEAM DOGGIT territory?",
-    quote: "HAHAHA... ha... the boss is gonna hear about this.",
-    team: [{ catId: "jackrussell", level: 5 }], reward: 40,
   }],
   2: [{
     id: "wanderer", x: 12, y: 4, emoji: "🚪", name: "BACKROOMS WANDERER",
     intro: "I've been lost here for years... fight me for directions!", quote: "You... you know the way out?",
     team: [{ catId: "zoned", level: 6 }, { catId: "huh", level: 7 }], reward: 60,
-  }, {
-    id: "doggit2", x: 3, y: 1, emoji: "🙂", name: "SMILING CORGI", doggit: true,
-    intro: "Hello, friend! Team Doggit says these backrooms are OURS. Smile!",
-    quote: "Still smiling. On the inside, crying. Dogovanni won't like this.",
-    team: [{ catId: "corgi", level: 7 }], reward: 50,
-  }],
-  3: [{
-    id: "doggit3", x: 1, y: 3, emoji: "😆", name: "TEAM DOGGIT", doggit: true,
-    intro: "JACK RUSSELL: \"HAHAHA, it's the cat!\" CORGI: \"We brought backup. It's us. We're the backup.\"",
-    quote: "\"Dogovanni will deal with you HIMSELF!\"",
-    team: [{ catId: "jackrussell", level: 9 }, { catId: "corgi", level: 10 }], reward: 70,
   }],
   4: [{
     id: "ohiokid", x: 7, y: 5, emoji: "🧢", name: "OHIO RIZZLER",
     intro: "Only in Ohio do we battle strangers!", quote: "That was NOT very sigma of me.",
     team: [{ catId: "stickbug", level: 9 }, { catId: "pipe", level: 10 }], reward: 80,
-  }, {
-    id: "doggit4", x: 1, y: 4, emoji: "🙂", name: "TEAM DOGGIT", doggit: true,
-    intro: "CORGI: \"This time it's personal.\" JACK RUSSELL: \"HAHAHA... no more laughing. Okay maybe a little.\"",
-    quote: "\"The boss is waiting for you in SPACE. Good luck. You'll need it. HAHAHA.\"",
-    team: [{ catId: "jackrussell", level: 12 }, { catId: "corgi", level: 13 }], reward: 90,
   }],
 };
 

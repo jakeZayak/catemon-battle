@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CATS, CAT_IDS, ENEMY_IDS, CAT_IMAGES, CAT_CROP, CAT_WRAP_BG, CAT_SOUNDS, HELICOPTER_SOUND, GAME_SOUNDS, BOSS_MOVE, FAMILY_BEATS, FAMILY_ICONS, MUSIC, JINGLES, movePool, familyMul } from "./cats.js";
 import { newFighter, buildRound, enemyFreeRound, levelMul } from "./battle.js";
-import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, worldBossLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses, NPCS, TRAINERS } from "./world.js";
+import { AREAS, GRASS_ENCOUNTER_CHANCE, worldWildLevel, ITEMS, itemToMove, findTile, tileAt, rollPickup, EQUIPMENT, EQUIP_IDS, gearBonuses, NPCS, TRAINERS, DOGGIT_GATES } from "./world.js";
 
 /* ============================================================
    CATÉMON — meme cat battle & adventure
@@ -693,17 +693,25 @@ export default function CatemonBattle() {
   };
 
   const startWorldBattle = (isBoss) => {
-    // the SPACE gate is Team Doggit's hideout — the leader himself awaits
+    // every gate belongs to Team Doggit; SPACE is the leader's own showdown
     if (isBoss && world.area === AREAS.length - 1) { startDoggitFinale(); return; }
-    battleIsBoss.current = isBoss;
+    if (isBoss) { startDoggitGate(); return; }
+    battleIsBoss.current = false;
     const p = playerFighterFrom(world);
     const wildId = randomFoeId(world.catId);
-    const area = AREAS[world.area];
-    const e = isBoss
-      ? newFighter(wildId, { level: worldBossLevel(world.area), name: `${area.bossPrefix} ${CATS[wildId].name}`, extraMoves: [BOSS_MOVE], statScale: 0.95 })
-      : newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9, shiny: Math.random() < 0.05 });
-    beginBattle(p, e, isBoss ? `${e.name} guards the way out!` : `A wild ${e.name} appeared!`);
-    if (isBoss) battleMusicRef.current = MUSIC.battleBoss;
+    const e = newFighter(wildId, { level: worldWildLevel(world.area), statScale: 0.9, shiny: Math.random() < 0.05 });
+    beginBattle(p, e, `A wild ${e.name} appeared!`);
+  };
+
+  const startDoggitGate = () => {
+    const gate = DOGGIT_GATES[world.area];
+    battleIsBoss.current = true; // no fleeing, no befriending
+    const p = playerFighterFrom(world);
+    const fighters = gate.team.map((m) => newFighter(m.catId, { level: m.level, statScale: 0.95 }));
+    beginBattle(p, fighters[0], gate.intro);
+    trainerRef.current = { id: `gate-${world.area}`, name: gate.name, quote: gate.quote, reward: gate.reward, gate: true };
+    enemyBenchRef.current = fighters.slice(1);
+    battleMusicRef.current = MUSIC.battleBoss;
   };
 
   const startDoggitFinale = () => {
@@ -753,6 +761,29 @@ export default function CatemonBattle() {
       setScreen("victory");
       return;
     }
+    if (trainerRef.current?.gate) {
+      // beating Team Doggit's gate crew opens the way to the next area
+      const tr = trainerRef.current;
+      trainerRef.current = null;
+      let w = levelUpState(world, finalPlayer);
+      const learnNote = newMoveNote(world.catId, world.level, w.level);
+      w = { ...w, coins: w.coins + tr.reward };
+      let benchNotes;
+      [w, benchNotes] = benchXpGain(w);
+      let dropText = "";
+      const unowned = EQUIP_IDS.filter((id) => !w.gear.owned.includes(id));
+      if (unowned.length) {
+        const drop = unowned[Math.floor(Math.random() * unowned.length)];
+        w = { ...w, gear: { ...w.gear, owned: [...w.gear.owned, drop] } };
+        dropText = ` They dropped a ${EQUIPMENT[drop].name}!`;
+        play("jingle:keyitem");
+      }
+      const nextArea = world.area + 1;
+      const spawn = findTile(AREAS[nextArea].map, "S");
+      setWorld({ ...w, area: nextArea, x: spawn.x, y: spawn.y });
+      showNotice(`${tr.name}: ${tr.quote} (+¢${tr.reward})${dropText} The gate opens — welcome to ${AREAS[nextArea].name}! ${CATS[world.catId].name} grew to LV.${w.level}!${learnNote}${benchNotes}`, "world");
+      return;
+    }
     if (trainerRef.current) {
       const tr = trainerRef.current;
       trainerRef.current = null;
@@ -767,37 +798,13 @@ export default function CatemonBattle() {
     }
     let w = levelUpState(world, finalPlayer);
     const learnNote = newMoveNote(world.catId, world.level, w.level);
-    const coins = battleIsBoss.current ? 25 : 5 + enemyF.level;
+    const coins = 5 + enemyF.level;
     w = { ...w, coins: w.coins + coins };
     let benchNotes;
     [w, benchNotes] = benchXpGain(w);
     const catName = CATS[world.catId].name;
-    if (battleIsBoss.current) {
-      if (world.area === AREAS.length - 1) {
-        clearSave(WORLD_SAVE);
-        setWorld(w);
-        setMeta((m) => (m.towerUnlocked ? m : { ...m, towerUnlocked: true }));
-        unlock("worldchamp");
-        setScreen("victory");
-        return;
-      }
-      // bosses drop a piece of gear you don't own yet
-      let dropText = "";
-      const unowned = EQUIP_IDS.filter((id) => !w.gear.owned.includes(id));
-      if (unowned.length) {
-        const drop = unowned[Math.floor(Math.random() * unowned.length)];
-        w = { ...w, gear: { ...w.gear, owned: [...w.gear.owned, drop] } };
-        dropText = ` The boss dropped a ${EQUIPMENT[drop].name}!`;
-        play("jingle:keyitem");
-      }
-      const nextArea = world.area + 1;
-      const spawn = findTile(AREAS[nextArea].map, "S");
-      setWorld({ ...w, area: nextArea, x: spawn.x, y: spawn.y });
-      showNotice(`The gate opens! ${catName} grew to LV.${w.level}!${dropText} Welcome to ${AREAS[nextArea].name}. (+${coins} coins)${learnNote}${benchNotes}`, "world");
-    } else {
-      setWorld(w);
-      showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!${learnNote}${benchNotes}`, "world");
-    }
+    setWorld(w);
+    showNotice(`${catName} grew to LV.${w.level}! Found ${coins} coins!${learnNote}${benchNotes}`, "world");
   };
 
   const completeQuest = () => {
@@ -923,12 +930,9 @@ export default function CatemonBattle() {
         setTimeout(() => setNpcDialog(npc), 60);
         return w;
       }
+      // undefeated trainers block their tile; beaten ones step aside and let you pass
       const tr = (TRAINERS[w.area] ?? []).find((n) => n.x === nx && n.y === ny);
-      if (tr) {
-        if ((w.beaten ?? []).includes(tr.id)) {
-          showToast(`${tr.name}: "${tr.quote}"`);
-          return w;
-        }
+      if (tr && !(w.beaten ?? []).includes(tr.id)) {
         if (!encounterPending.current) {
           encounterPending.current = true;
           setTimeout(() => startTrainerBattle(tr), 120);
