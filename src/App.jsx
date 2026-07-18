@@ -307,23 +307,44 @@ function useSfx() {
     }
   }, []);
 
-  /* ---------- looping background music (real tracks) ---------- */
+  /* ---------- looping background music (real tracks) ----------
+     One persistent Audio element for all tracks: once it has played from a user
+     gesture it stays "unlocked", so track changes that happen outside a gesture
+     (e.g. battles triggered by walking, via setTimeout) can still start playback
+     on iOS/Android. If play() is ever blocked anyway, retry on the next input. */
 
   const stopMusic = useCallback(() => {
     musicRef.current.audio?.pause();
-    musicRef.current = { audio: null, src: null };
+    musicRef.current.src = null;
     window.__catemonMusic = null;
   }, []);
 
   const startMusic = useCallback((src) => {
-    if (musicRef.current.src === src) return;
-    musicRef.current.audio?.pause();
-    const audio = new Audio(src);
-    audio.loop = true;
+    if (!musicRef.current.audio) {
+      const a = new Audio();
+      a.loop = true;
+      musicRef.current.audio = a;
+    }
+    const audio = musicRef.current.audio;
     audio.volume = volsRef.current.music;
-    musicRef.current = { audio, src };
-    window.__catemonMusic = src; // test hook
-    audio.play().catch(() => {});
+    if (musicRef.current.src !== src) {
+      audio.src = src;
+      musicRef.current.src = src;
+      window.__catemonMusic = src; // test hook
+    }
+    audio.play().catch(() => {
+      // autoplay blocked — resume on the very next tap or keypress
+      const resume = () => {
+        cleanup();
+        audio.play().catch(() => {});
+      };
+      const cleanup = () => {
+        window.removeEventListener("pointerdown", resume);
+        window.removeEventListener("keydown", resume);
+      };
+      window.addEventListener("pointerdown", resume, { once: true });
+      window.addEventListener("keydown", resume, { once: true });
+    });
   }, []);
 
   return { play, mutedRef, catAudioRef, startMusic, stopMusic, setVolumes, volsRef };
