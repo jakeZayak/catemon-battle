@@ -666,7 +666,7 @@ export default function CatemonBattle() {
       area: 0, x: spawn.x, y: spawn.y,
       coins: 15, bag: { churu: 1 }, picked: [],
       gear: { owned: [], collar: null, charm: null },
-      bench: [], box: [], quests: {}, beaten: [],
+      bench: [], box: [], quests: {}, beaten: [], mapVersion: 2,
     });
     setScreen("world");
     play("start");
@@ -682,6 +682,14 @@ export default function CatemonBattle() {
         saved.box = (saved.box ?? []).map((m) => ({ gear: { collar: null, charm: null }, ...m }));
         saved.quests ??= {};
         saved.beaten ??= [];
+        // v2 maps are 28×20 — old positions/pickups don't translate, reset them
+        if (saved.mapVersion !== 2) {
+          const spawn = findTile(AREAS[saved.area].map, "S");
+          saved.x = spawn.x;
+          saved.y = spawn.y;
+          saved.picked = [];
+          saved.mapVersion = 2;
+        }
         setWorld(saved);
         setMode("world");
         setScreen("world");
@@ -1868,9 +1876,16 @@ export default function CatemonBattle() {
           <span>¢{world.coins}</span>
         </div>
         <div className="tilegrid" onPointerDown={onSwipeStart} onPointerUp={onSwipeEnd}>
-          {area.map.flatMap((row, y) =>
-            [...row].map((t, x) => {
-              const isPlayer = world.x === x && world.y === y;
+          {(() => {
+            // camera: a 14×10 window that follows the player, clamped to map edges
+            const mapW = area.map[0].length;
+            const mapH = area.map.length;
+            const camX = Math.max(0, Math.min(world.x - 7, mapW - 14));
+            const camY = Math.max(0, Math.min(world.y - 5, mapH - 10));
+            return Array.from({ length: 10 }, (_, vy) => camY + vy).flatMap((y) =>
+              Array.from({ length: 14 }, (_, vx) => camX + vx).map((x) => {
+                const t = tileAt(area.map, x, y);
+                const isPlayer = world.x === x && world.y === y;
               const picked = world.picked.includes(`${world.area}:${x},${y}`);
               const npcHere = (NPCS[world.area] ?? []).find((n) => n.x === x && n.y === y);
               const trHere = (TRAINERS[world.area] ?? []).find((n) => n.x === x && n.y === y);
@@ -1891,8 +1906,9 @@ export default function CatemonBattle() {
                   ) : null}
                 </div>
               );
-            })
-          )}
+              })
+            );
+          })()}
         </div>
         <div className="world-footer">
           <div className="world-stats">
