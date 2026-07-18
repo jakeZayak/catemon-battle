@@ -162,14 +162,30 @@ const EVENTS = [
 
 function useAutoScale(userScale) {
   const shellRef = useRef(null);
-  const [scale, setScale] = useState(1);
+  const [view, setView] = useState({ scale: 1, fillHeight: null });
   useEffect(() => {
     const measure = () => {
       const el = shellRef.current;
       if (!el) return;
-      // offsetWidth/Height are layout sizes — unaffected by the transform itself
-      const fit = Math.min((window.innerWidth - 8) / el.offsetWidth, (window.innerHeight - 8) / el.offsetHeight);
-      setScale(Math.max(0.4, fit * userScale));
+      el.style.height = ""; // clear any fill height so we measure the natural size
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const fitW = vw / w;
+      const fitH = vh / h;
+      if (fitW <= fitH) {
+        // portrait-ish screen (phone / iPad / Retroid): fill the width and STRETCH
+        // the shell so the game covers the entire screen — no letterbox bands
+        const k = Math.max(0.4, fitW * userScale);
+        const fillHeight = Math.floor(vh / k);
+        el.style.height = `${fillHeight}px`; // restore immediately; React re-applies on render
+        setView({ scale: k, fillHeight });
+      } else {
+        // landscape (desktop tab): fit by height, centered with side bars
+        const k = Math.max(0.4, fitH * userScale);
+        setView({ scale: k, fillHeight: null });
+      }
     };
     measure();
     window.addEventListener("resize", measure);
@@ -179,7 +195,7 @@ function useAutoScale(userScale) {
       window.removeEventListener("orientationchange", measure);
     };
   }, [userScale]);
-  return { shellRef, scale };
+  return { shellRef, scale: view.scale, fillHeight: view.fillHeight };
 }
 
 /* ---------- gamepad → keyboard bridge (Retroid Pocket & friends) ----------
@@ -452,8 +468,19 @@ export default function CatemonBattle() {
   const [uiScale, setUiScale] = useState(() =>
     Math.min(1, Math.max(0.6, parseFloat(localStorage.getItem("catemon-ui-scale") ?? "1")))
   );
-  const { shellRef, scale } = useAutoScale(uiScale);
+  const { shellRef, scale, fillHeight } = useAutoScale(uiScale);
   useGamepad();
+  const [isFs, setIsFs] = useState(false);
+  useEffect(() => {
+    const onFs = () => setIsFs(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFs);
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+  const toggleFullscreen = () => {
+    play("select");
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+  };
   const rng = Math.random;
   const floatId = useRef(0);
   const floatTimers = useRef({});
@@ -1474,7 +1501,18 @@ export default function CatemonBattle() {
   const css = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-      html, body { overscroll-behavior: none; touch-action: manipulation; background: #1a1c22; }
+      html, body { margin: 0; padding: 0; overflow: hidden; overscroll-behavior: none;
+        touch-action: manipulation; background: #1a1c22; }
+      /* fill mode (portrait screens): the shell stretches to cover the whole screen */
+      .cb-shell.fill { display: flex; flex-direction: column; }
+      .cb-shell.fill .screen { flex: 1; aspect-ratio: auto; min-height: 0; }
+      /* fullscreen / installed app: drop the handheld bezel so the game IS the screen */
+      .cb-root.fs { padding: 0; }
+      .cb-root.fs .cb-shell { border-radius: 0; box-shadow: none; padding: 4px; }
+      @media (display-mode: fullscreen), (display-mode: standalone) {
+        .cb-root { padding: 0; }
+        .cb-shell { border-radius: 0; box-shadow: none; padding: 4px; }
+      }
       .cb-root { font-family: 'Press Start 2P', 'Courier New', monospace; -webkit-tap-highlight-color: transparent;
         background: #1a1c22; height: 100dvh; display: flex; align-items: center; justify-content: center;
         overflow: hidden;
@@ -2460,12 +2498,19 @@ export default function CatemonBattle() {
   }
 
   return (
-    <div className="cb-root">
+    <div className={`cb-root ${isFs ? "fs" : ""}`}>
       {css}
-      <div className="cb-shell" ref={shellRef} style={{ transform: `scale(${scale})` }}>
+      <div
+        className={`cb-shell ${fillHeight ? "fill" : ""}`}
+        ref={shellRef}
+        style={{ transform: `scale(${scale})`, height: fillHeight ?? undefined }}
+      >
         <div className="cb-shell-top">
           <span className="cb-brand">CATÉMON v3.0</span>
           {screen !== "title" && <button className="cb-menu" onClick={menuButton}>MENU</button>}
+          {typeof document !== "undefined" && document.fullscreenEnabled && (
+            <button className="cb-mute" onClick={toggleFullscreen}>{isFs ? "⛶ EXIT" : "⛶ FULL"}</button>
+          )}
           <button className="cb-mute" onClick={() => setMusicOn((m) => !m)}>{musicOn ? "♪ ON" : "♪ OFF"}</button>
           <button className="cb-mute" onClick={() => setMuted((m) => !m)}>{muted ? "SOUND: OFF" : "SOUND: ON"}</button>
         </div>
