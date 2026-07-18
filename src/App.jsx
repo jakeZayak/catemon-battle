@@ -297,7 +297,7 @@ function InfoBox({ f, showNum, align, showLv }) {
     <div className={`infobox ${align}`}>
       <div className="infobox-top">
         <span className="fighter-name">{f.name}</span>
-        <span className="fighter-lv">{FAMILY_ICONS[f.base.family]}{showLv ? ` L${f.level}` : ""}</span>
+        <span className="fighter-lv">{FAMILY_ICONS[f.base.family]} {f.base.family}{showLv ? ` · L${f.level}` : ""}</span>
       </div>
       <HpBar hp={f.hp} maxHp={f.maxHp} />
       {showNum && <div className="hp-num">{f.hp}/{f.maxHp}</div>}
@@ -1439,6 +1439,8 @@ export default function CatemonBattle() {
       .matchup { font-size: 6px; color: #6a6c58; background: #f0ecd8; border: 1px solid #c8c4a8;
         border-radius: 4px; padding: 3px 5px; margin-bottom: 6px; line-height: 1.7; }
       .vol-slider { width: 100%; accent-color: #c8742a; height: 22px; cursor: pointer; }
+      .eff-strong { display: block; color: #2a8a3a; font-size: 6px; margin-top: 2px; }
+      .eff-weak { display: block; color: #c04030; font-size: 6px; margin-top: 2px; }
       .continue { align-self: flex-end; font-size: 10px; color: #c8742a; animation: bob 0.8s steps(2) infinite; }
       @keyframes bob { 50% { transform: translateY(3px); } }
       .movegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
@@ -2313,12 +2315,20 @@ export default function CatemonBattle() {
                   );
                 })()}
                 <div className="movegrid">
-                  {playerF.moves.map((m) => (
-                    <button key={m.key} className="movebtn" onClick={() => pickMove(m)}>
-                      {m.name}
-                      <small>{m.desc}{m.fx.heal && !m.item ? ` (${playerF.healsLeft} left)` : ""}</small>
-                    </button>
-                  ))}
+                  {playerF.moves.map((m) => {
+                    const eff = familyMul(playerF.base.family, enemyF.base.family);
+                    return (
+                      <button key={m.key} className="movebtn" onClick={() => pickMove(m)}>
+                        {m.name}
+                        <small>{m.desc}{m.fx.heal && !m.item ? ` (${playerF.healsLeft} left)` : ""}</small>
+                        {m.power > 0 && eff !== 1 && (
+                          <small className={eff > 1 ? "eff-strong" : "eff-weak"}>
+                            {eff > 1 ? "▲ strong vs" : "▼ weak vs"} {FAMILY_ICONS[enemyF.base.family]} {enemyF.base.family}
+                          </small>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className="battle-actions">
                   {(mode === "world" || mode === "rogue") && <button className="actionbtn" onClick={() => setShowBag(true)}>🎒 BAG</button>}
