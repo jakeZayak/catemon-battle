@@ -214,6 +214,9 @@ function useGamepad() {
     const AXES = [
       { axis: 0, neg: "ArrowLeft", pos: "ArrowRight" },
       { axis: 1, neg: "ArrowUp", pos: "ArrowDown" },
+      // many Android handhelds report the d-pad as a hat on axes 6/7, not buttons 12-15
+      { axis: 6, neg: "ArrowLeft", pos: "ArrowRight" },
+      { axis: 7, neg: "ArrowUp", pos: "ArrowDown" },
     ];
     const fire = (type, key) => window.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
     let raf;
@@ -371,6 +374,42 @@ function useCursorNav(screen, padActive) {
       clearCursor();
     };
   }, [screen, padActive]);
+}
+
+/* ---------- input diagnostics (open the game with ?padtest to show) ----------
+   Live readout of raw gamepad state and the last few key events, so a device
+   whose d-pad maps strangely can tell us exactly what it sends. */
+
+function PadDebug() {
+  const [info, setInfo] = useState({ pads: "no pad", keys: [] });
+  useEffect(() => {
+    const keys = [];
+    const onKey = (e) => {
+      keys.unshift(`${e.type === "keydown" ? "↓" : "↑"}${e.repeat ? "ʳ" : ""}${e.key}`);
+      if (keys.length > 6) keys.length = 6;
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    const iv = setInterval(() => {
+      const gp = navigator.getGamepads?.()?.find?.(Boolean);
+      const pads = gp
+        ? `${gp.mapping || "nonstd"} btn:[${gp.buttons.map((b, i) => (b.pressed ? i : null)).filter((x) => x !== null).join(",")}] ax:[${gp.axes.map((a) => a.toFixed(1)).join(",")}]`
+        : "no pad";
+      setInfo({ pads, keys: [...keys] });
+    }, 120);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+      clearInterval(iv);
+    };
+  }, []);
+  return (
+    <div className="pad-debug">
+      {info.pads}
+      <br />
+      {info.keys.join(" ") || "no keys yet"}
+    </div>
+  );
 }
 
 /* ---------- sfx (real audio + chiptune fallback) ---------- */
@@ -1282,8 +1321,19 @@ export default function CatemonBattle() {
     });
   }, [screen, confirm, npcDialog, showSettings, play]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* keyboard: overworld movement (tap = one step, hold = keep walking) + battle advance */
-  const heldDirs = useRef(new Map()); // key -> [dx,dy], most recent press last
+  /* keyboard: overworld movement (tap = one step, hold = keep walking) + battle advance.
+     Different devices report a held d-pad differently — a clean keydown…keyup pair,
+     an auto-repeat stream, or rapid press/release pairs — so BOTH paths step through
+     one shared throttle: every keydown steps (covers repeat/pair streams), and the
+     stepper keeps walking keys genuinely held past 200ms (covers clean holds). */
+  const heldDirs = useRef(new Map()); // key -> { d: [dx,dy], since }, most recent press last
+  const lastStepAt = useRef(0);
+  const stepThrottled = (d) => {
+    const now = performance.now();
+    if (now - lastStepAt.current < 120) return;
+    lastStepAt.current = now;
+    tryMove(...d);
+  };
   useEffect(() => {
     const DIRS = {
       arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1],
@@ -1294,11 +1344,10 @@ export default function CatemonBattle() {
       const k = e.key.toLowerCase();
       if (screen === "world" && DIRS[k]) {
         e.preventDefault();
-        // first press steps immediately; the stepper below owns the repeat cadence
-        if (!e.repeat && !heldDirs.current.has(k)) {
-          heldDirs.current.set(k, DIRS[k]);
-          tryMove(...DIRS[k]);
-        }
+        const cur = heldDirs.current.get(k) ?? { d: DIRS[k], since: performance.now() };
+        heldDirs.current.delete(k); // re-insert as most recent, keeping the original press time
+        heldDirs.current.set(k, cur);
+        stepThrottled(DIRS[k]);
         return;
       }
       if (e.key === "Enter" || e.key === " ") {
@@ -1317,18 +1366,19 @@ export default function CatemonBattle() {
     };
   });
 
-  /* hold-to-walk: while a direction key (or d-pad button) is held, keep stepping */
+  /* hold-to-walk: keys held longer than 200ms keep stepping (taps stay one step) */
   useEffect(() => {
     if (screen !== "world") {
       heldDirs.current.clear();
       return;
     }
     const iv = setInterval(() => {
-      const dirs = [...heldDirs.current.values()];
-      if (dirs.length) tryMove(...dirs[dirs.length - 1]);
-    }, 140);
+      const now = performance.now();
+      const held = [...heldDirs.current.values()].filter((h) => now - h.since > 200);
+      if (held.length) stepThrottled(held[held.length - 1].d);
+    }, 50);
     return () => clearInterval(iv);
-  }, [screen, tryMove]);
+  }, [screen, tryMove]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---------- center (heal + shop) ---------- */
 
@@ -1727,6 +1777,9 @@ export default function CatemonBattle() {
       .settings-row .bigbtn { flex: 0 0 46%; }
       .settings-row .vol-slider { flex: 1; min-width: 0; }
       .settings-label { font-size: 7px; color: #22241c; flex: 0 0 46%; }
+      .pad-debug { position: absolute; left: 4px; bottom: 4px; z-index: 90; pointer-events: none;
+        background: rgba(20,21,28,0.75); color: #7ee787; font-size: 7px; line-height: 1.8;
+        padding: 5px 7px; border-radius: 5px; max-width: 95%; word-break: break-all; }
       .arena { flex: 1; position: relative; background: linear-gradient(#dfe8d0 62%, #c8d8b0 62%); padding: 8px; }
       .platform { position: absolute; background: #b0c494; border-radius: 50%; opacity: 0.8; }
       .plat-enemy { width: 34%; height: 7%; right: 6%; top: 34%; }
@@ -2671,6 +2724,7 @@ export default function CatemonBattle() {
       >
         <div className="screen">
           {inner}
+          {typeof location !== "undefined" && location.search.includes("padtest") && <PadDebug />}
           {!padActive && !showSettings && (
             <button className="gear-fab" onClick={() => { setShowSettings(true); play("select"); }} aria-label="settings">⚙</button>
           )}
