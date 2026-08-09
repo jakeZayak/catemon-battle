@@ -13,9 +13,9 @@ export const CAT_IMAGES = {
   zoned:  asset("cat_imgs/zoned-out-cat.gif"),
   apple:  asset("cat_imgs/apple-cat.gif"),
   wert:   asset("cat_imgs/wert.png"),
-  pipe:   asset("cat_imgs/pipe.webp"),
+  pipe:   asset("cat_imgs/pipe.png"),
   stickbug: asset("cat_imgs/stick-bug.gif"),
-  sprite: asset("cat_imgs/sprite-cat.jpg"),
+  sprite: asset("cat_imgs/sprite-cat.png"),
   cokey:  asset("cat_imgs/cokey-cola-cat.png"),
   /* Team Doggit (enemies only) */
   jackrussell: asset("cat_imgs/jack-russell.gif"),
@@ -24,7 +24,9 @@ export const CAT_IMAGES = {
   dogovanni: asset("cat_imgs/dogovanni.gif"),
 };
 
-// objectPosition to crop each photo nicely in a square container
+// objectPosition to crop each photo nicely in a square container.
+// The cut-out sprites (pipe, sprite, cokey) are transparent PNGs already padded
+// to a square, so they stay "center center" — there is nothing to crop away.
 export const CAT_CROP = {
   huh:    "center 0%",    // anchor top → clips the "HUH" text at the bottom
   maxwell: "60% center",  // shift right to center on the cat body
@@ -38,7 +40,7 @@ export const CAT_CROP = {
   pipe:   "center center",
   stickbug: "center 35%", // frame the bug on the ledge
   sprite: "center center",
-  cokey:  "center center", // cut-out sprite, padded square — nothing to crop
+  cokey:  "center center",
   jackrussell: "center 20%",
   corgi: "center center",
   dogovanni_fake: "center 15%",
