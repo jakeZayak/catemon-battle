@@ -11,7 +11,7 @@ export const CAT_IMAGES = {
   banana: asset("cat_imgs/banana-cat.gif"),
   pedro:  asset("cat_imgs/pedro.gif"),
   zoned:  asset("cat_imgs/zoned-out-cat.gif"),
-  apple:  asset("cat_imgs/apple-cat.gif"),
+  apple:  asset("cat_imgs/apple-cat.png"),   // animated cut-out (APNG)
   wert:   asset("cat_imgs/wert.png"),
   pipe:   asset("cat_imgs/pipe.png"),
   stickbug: asset("cat_imgs/stick-bug.gif"),
@@ -25,8 +25,9 @@ export const CAT_IMAGES = {
 };
 
 // objectPosition to crop each photo nicely in a square container.
-// The cut-out sprites (pipe, sprite, cokey) are transparent PNGs already padded
-// to a square, so they stay "center center" — there is nothing to crop away.
+// The cut-out sprites (pipe, sprite, cokey, apple) are transparent PNGs already
+// padded to a square, so they stay "center center" — nothing to crop away.
+// apple is an APNG: same 8-bit alpha, but it keeps its animation.
 export const CAT_CROP = {
   huh:    "center 0%",    // anchor top → clips the "HUH" text at the bottom
   maxwell: "60% center",  // shift right to center on the cat body
