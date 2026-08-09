@@ -5,10 +5,10 @@ export const asset = (p) => import.meta.env.BASE_URL + p;
 
 export const CAT_IMAGES = {
   huh:    asset("cat_imgs/huh-cat.gif"),
-  maxwell: asset("cat_imgs/maxwell-cat-spinning.gif"),
-  oiia:   asset("cat_imgs/oiia-cat.gif"),
+  maxwell: asset("cat_imgs/maxwell-cat-spinning.png"),
+  oiia:   asset("cat_imgs/oiia-cat.png"),
   quaso:  asset("cat_imgs/quaso_cat.webp"),
-  banana: asset("cat_imgs/banana-cat.gif"),
+  banana: asset("cat_imgs/banana-cat.png"),
   pedro:  asset("cat_imgs/pedro.gif"),
   zoned:  asset("cat_imgs/zoned-out-cat.gif"),
   apple:  asset("cat_imgs/apple-cat.png"),   // animated cut-out (APNG)
@@ -18,22 +18,23 @@ export const CAT_IMAGES = {
   sprite: asset("cat_imgs/sprite-cat.png"),
   cokey:  asset("cat_imgs/cokey-cola-cat.png"),
   /* Team Doggit (enemies only) */
-  jackrussell: asset("cat_imgs/jack-russell.gif"),
+  jackrussell: asset("cat_imgs/jack-russell.png"),
   corgi: asset("cat_imgs/corgi.gif"),
   dogovanni_fake: asset("cat_imgs/dogovanni-fake.png"),
   dogovanni: asset("cat_imgs/dogovanni.gif"),
 };
 
 // objectPosition to crop each photo nicely in a square container.
-// The cut-out sprites (pipe, sprite, cokey, apple) are transparent PNGs already
-// padded to a square, so they stay "center center" — nothing to crop away.
-// apple is an APNG: same 8-bit alpha, but it keeps its animation.
+// The cut-out sprites are transparent PNGs already padded to a square, so they
+// stay "center center" — there is nothing to crop away. The animated ones
+// (maxwell, oiia, banana, apple, jackrussell) are APNGs: same 8-bit alpha as the
+// stills, but they keep their animation.
 export const CAT_CROP = {
   huh:    "center 0%",    // anchor top → clips the "HUH" text at the bottom
-  maxwell: "60% center",  // shift right to center on the cat body
+  maxwell: "center center",
   oiia:   "center center",
   quaso:  "20% 30%",      // zoom into the face, crop out wall/floor background
-  banana: "center 30%",   // tall portrait — favor the face
+  banana: "center center",
   pedro:  "center center",
   zoned:  "center 25%",   // favor the eyes
   apple:  "center center",
@@ -42,14 +43,17 @@ export const CAT_CROP = {
   stickbug: "center 35%", // frame the bug on the ledge
   sprite: "center center",
   cokey:  "center center",
-  jackrussell: "center 20%",
+  jackrussell: "center center",
   corgi: "center center",
   dogovanni_fake: "center 15%",
   dogovanni: "center center",
 };
 
-// oiia GIF has a solid black background — match the wrapper so it looks clean
-export const CAT_WRAP_BG = { oiia: "#111", pedro: "#111" };
+// pedro's GIF is a circular vignette whose black surround bleeds into the
+// raccoon's own dark fur — there's no edge to cut along, so it keeps its
+// backdrop and the wrapper matches it. Every other black-background cat is a
+// transparent cut-out now.
+export const CAT_WRAP_BG = { pedro: "#111" };
 
 // each cat has multiple clips — one is picked at random per move
 export const CAT_SOUNDS = {
