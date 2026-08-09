@@ -419,6 +419,11 @@ function useSfx() {
   const mutedRef = useRef(false);
   const catAudioRef = useRef(null);
   const musicRef = useRef({ audio: null, src: null });
+  // backgrounded, screen-locked, or the window lost focus
+  const awayRef = useRef(false);
+  // whether music *should* be sounding right now, independent of whether the
+  // element is actually playing — lets us restore the right track on return
+  const wantsMusicRef = useRef(false);
   const volsRef = useRef({
     music: Math.min(1, Math.max(0, parseFloat(localStorage.getItem("catemon-vol-music") ?? "0.45"))),
     sfx: Math.min(1, Math.max(0, parseFloat(localStorage.getItem("catemon-vol-sfx") ?? "1"))),
@@ -432,7 +437,9 @@ function useSfx() {
   }, []);
 
   const play = useCallback((kind) => {
-    if (mutedRef.current) return;
+    // game timers keep firing while we're backgrounded, so refusing to start a
+    // sound matters as much as pausing the ones already going
+    if (mutedRef.current || awayRef.current) return;
 
     const playFile = (src) => {
       if (catAudioRef.current) { catAudioRef.current.pause(); catAudioRef.current.currentTime = 0; }
@@ -499,6 +506,7 @@ function useSfx() {
      on iOS/Android. If play() is ever blocked anyway, retry on the next input. */
 
   const stopMusic = useCallback(() => {
+    wantsMusicRef.current = false;
     musicRef.current.audio?.pause();
     musicRef.current.src = null;
     window.__catemonMusic = null;
@@ -517,10 +525,15 @@ function useSfx() {
       musicRef.current.src = src;
       window.__catemonMusic = src; // test hook
     }
+    wantsMusicRef.current = true;
+    // a battle can start from a timer while we're backgrounded — remember the
+    // track, but don't make a sound until we're actually back
+    if (awayRef.current) return;
     audio.play().catch(() => {
       // autoplay blocked — resume on the very next tap or keypress
       const resume = () => {
         cleanup();
+        if (awayRef.current || !wantsMusicRef.current) return;
         audio.play().catch(() => {});
       };
       const cleanup = () => {
@@ -532,30 +545,50 @@ function useSfx() {
     });
   }, []);
 
-  /* music politely stops when the app is backgrounded / loses focus, and picks
-     back up on return — only if it was actually playing when we left */
+  /* Everything audible stops when the app is backgrounded, the device is
+     locked, or the window loses focus, and picks back up on return.
+     Three sources have to be silenced, not just the music: the looping track,
+     whatever one-shot clip is mid-flight (pedro's song and the helicopter run
+     for seconds), and the WebAudio context driving the chiptune beeps. */
   useEffect(() => {
-    let pausedByBlur = false;
-    const pause = () => {
-      const a = musicRef.current.audio;
-      if (a && !a.paused) {
-        a.pause();
-        pausedByBlur = true;
-      }
+    const silence = () => {
+      awayRef.current = true;
+      musicRef.current.audio?.pause();
+      const sfx = catAudioRef.current;
+      if (sfx) { sfx.pause(); sfx.currentTime = 0; } // don't resume a meme clip mid-word
+      try { ctxRef.current?.suspend?.(); } catch { /* context already closed */ }
     };
-    const resume = () => {
+    const wake = () => {
+      // focus can fire while still hidden (and pointerdown fires constantly)
+      if (document.visibilityState === "hidden" || !awayRef.current) return;
+      awayRef.current = false;
+      try { ctxRef.current?.resume?.(); } catch { /* context already closed */ }
       const a = musicRef.current.audio;
-      if (a && pausedByBlur && musicRef.current.src) a.play().catch(() => {});
-      pausedByBlur = false;
+      if (a && wantsMusicRef.current && musicRef.current.src) a.play().catch(() => {});
     };
-    const onVis = () => (document.visibilityState === "hidden" ? pause() : resume());
+
+    const onVis = () => (document.visibilityState === "hidden" ? silence() : wake());
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("blur", pause);
-    window.addEventListener("focus", resume);
+    // iOS fires pagehide (not always blur) when the device locks or the PWA is
+    // swiped away; Chrome fires freeze when it discards a background tab
+    window.addEventListener("pagehide", silence);
+    window.addEventListener("freeze", silence);
+    window.addEventListener("pageshow", wake);
+    window.addEventListener("blur", silence);
+    window.addEventListener("focus", wake);
+    // safety net: a stray blur that never gets a matching focus must not leave
+    // the game permanently silent, so any real input wakes it too
+    window.addEventListener("pointerdown", wake);
+    window.addEventListener("keydown", wake);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("blur", pause);
-      window.removeEventListener("focus", resume);
+      window.removeEventListener("pagehide", silence);
+      window.removeEventListener("freeze", silence);
+      window.removeEventListener("pageshow", wake);
+      window.removeEventListener("blur", silence);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("pointerdown", wake);
+      window.removeEventListener("keydown", wake);
     };
   }, []);
 
