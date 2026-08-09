@@ -335,7 +335,7 @@ export const TRAINERS = {
   }, {
     id: "remotekeeper", x: 19, y: 13, emoji: "📺", name: "REMOTE KEEPER",
     intro: "You want the remote? FIGHT for it.", quote: "It was between the cushions all along.",
-    team: [{ catId: "zoned", level: 5 }], reward: 30,
+    team: [{ catId: "zoned", level: 5 }, { catId: "cokey", level: 5 }], reward: 45,
   }],
   2: [{
     id: "wanderer", x: 9, y: 14, emoji: "🚪", name: "BACKROOMS WANDERER",

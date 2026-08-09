@@ -16,6 +16,7 @@ export const CAT_IMAGES = {
   pipe:   asset("cat_imgs/pipe.webp"),
   stickbug: asset("cat_imgs/stick-bug.gif"),
   sprite: asset("cat_imgs/sprite-cat.jpg"),
+  cokey:  asset("cat_imgs/cokey-cola-cat.png"),
   /* Team Doggit (enemies only) */
   jackrussell: asset("cat_imgs/jack-russell.gif"),
   corgi: asset("cat_imgs/corgi.gif"),
@@ -37,6 +38,7 @@ export const CAT_CROP = {
   pipe:   "center center",
   stickbug: "center 35%", // frame the bug on the ledge
   sprite: "center center",
+  cokey:  "center center", // cut-out sprite, padded square — nothing to crop
   jackrussell: "center 20%",
   corgi: "center center",
   dogovanni_fake: "center 15%",
@@ -60,6 +62,7 @@ export const CAT_SOUNDS = {
   pipe:   ["sounds/metal-pipe-clang.mp3"].map(asset),
   stickbug: ["sounds/stickbug.mp3"].map(asset),
   sprite: ["sounds/sprite-cat-1.mp3"].map(asset),
+  cokey:  ["sounds/cokey-cola.mp3"].map(asset),
   jackrussell: ["sounds/laughing_jack_russell.mp3"].map(asset),
   corgi: ["sounds/smiling_corgi.mp3"].map(asset),
 };
@@ -326,6 +329,24 @@ export const CATS = {
       { at: 8, move: { key: "sugarfree", name: "SUGAR-FREE RAGE", power: 82, acc: 88, desc: "Zero sugar. Full power.",         fx: {} } },
     ],
   },
+  cokey: {
+    id: "cokey",
+    name: "COKEY COLA CAT",
+    type: "COLA",
+    family: "SNACC",
+    tagline: "cokey cola",
+    stats: { hp: 112, atk: 26, def: 21, spd: 20 },
+    moves: [
+      { key: "cokey",  name: "COKEY COLA",   power: 0,  acc: 90,  desc: "Says the line. Confuses the foe.", fx: { confuse: 1.0 } },
+      { key: "shaken", name: "SHAKEN CAN",   power: 55, acc: 95,  desc: "Shaken, not stirred.",             fx: {} },
+      { key: "sugar",  name: "SUGAR RUSH",   power: 0,  acc: 100, desc: "All that syrup. Raises ATK.",      fx: { atkUp: 1.0 } },
+      { key: "burp",   name: "MEGA BURP",    power: 78, acc: 88,  desc: "Carbonation, weaponized.",         fx: {} },
+    ],
+    learnset: [
+      { at: 4, move: { key: "sip",    name: "REFRESHING SIP",   power: 0,  acc: 100, desc: "Ahhh. Restores 30% HP.",              fx: { heal: 0.3 } } },
+      { at: 8, move: { key: "mentos", name: "MENTOS INCIDENT",  power: 85, acc: 88,  desc: "Do not try this. Fizzy recoil.",      fx: { recoil: 0.12 } } },
+    ],
+  },
   wert: {
     id: "wert",
     name: "WERT",
@@ -404,7 +425,7 @@ export const CATS = {
   },
 };
 
-export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "sprite", "wert"];
+export const CAT_IDS = ["huh", "maxwell", "oiia", "quaso", "banana", "pedro", "zoned", "apple", "pipe", "stickbug", "sprite", "cokey", "wert"];
 
 /* every move a cat could know at a given level (base 4 + unlocked learnset moves) */
 export const movePool = (catId, level = 99) => {
